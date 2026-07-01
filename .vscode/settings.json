@@ -1,0 +1,29 @@
+{
+  "cSpell.words": [
+    "SaiDinesh",
+    "Dinesh",
+    "Andekar",
+    "Wazuh",
+    "SIEM",
+    "Suricata",
+    "Wireshark",
+    "Sysmon",
+    "Metasploit",
+    "Metasploitable",
+    "Nmap",
+    "Ubiquiti",
+    "UniFi",
+    "Canva",
+    "Wireframing",
+    "eleken",
+    "Telangana",
+    "Writeups"
+  ],
+  "python-envs.pythonProjects": [
+    {
+      "path": "assets/images",
+      "envManager": "ms-python.python:venv",
+      "packageManager": "ms-python.python:pip"
+    }
+  ]
+}

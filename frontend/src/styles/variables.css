@@ -1,0 +1,22 @@
+:root {
+  --bg-primary: #f5f3ef;
+  --bg-secondary: #ffffff;
+  --bg-card: rgba(0, 0, 0, 0.03);
+
+  --primary: #111111;
+  --primary-light: #333333;
+  --accent: #0ea5e9;
+
+  --text: #111111;
+  --text-secondary: #6b6b6b;
+
+  --success: #22c55e;
+  --warning: #facc15;
+  --danger: #ef4444;
+
+  --border: rgba(0, 0, 0, 0.08);
+
+  --glass: rgba(255, 255, 255, 0.6);
+
+  --blur: 18px;
+}
