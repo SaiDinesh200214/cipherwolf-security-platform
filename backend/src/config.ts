@@ -7,7 +7,6 @@ const insecureDefaults = new Set([
   "replace-with-a-separate-long-random-encryption-key",
   "SaiTeju@140515",
   "cipherwolf",
-  "cipherwolf25.18.00@gmail.com",
   "postgresql://cipherwolf:cipherwolf@localhost:5432/cipherwolf_security?schema=public",
 ]);
 

@@ -20,6 +20,8 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: ADMIN_EMAIL
+        sync: false
       - key: JWT_SECRET
         sync: false
       - key: DATA_ENCRYPTION_KEY
