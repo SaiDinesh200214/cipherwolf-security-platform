@@ -31,6 +31,7 @@ DATABASE_SSL_REJECT_UNAUTHORIZED=false
 FRONTEND_ORIGIN=<vercel-frontend-url>
 ADMIN_USERNAME=<admin-username>
 ADMIN_PASSWORD=<strong-admin-password>
+ADMIN_EMAIL=<admin-otp-email>
 JWT_SECRET=<32-plus-random-characters>
 DATA_ENCRYPTION_KEY=<different-32-plus-random-characters>
 COOKIE_SECURE=true
@@ -64,7 +65,7 @@ Import the GitHub repository into Vercel:
 Set this Vercel environment variable:
 
 ```bash
-VITE_API_BASE_URL=https://<your-render-service>.onrender.com
+VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api
 ```
 
 After Vercel creates the final frontend URL, copy it back to Render as `FRONTEND_ORIGIN`, then redeploy the Render service.

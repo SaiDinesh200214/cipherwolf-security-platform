@@ -522,6 +522,23 @@ async function ensureBootstrapAdmin(username: string, password: string) {
   );
 }
 
+async function createAdminOtpChallenge(
+  user: AdminUserRow,
+  channel: OtpChannel,
+  purpose: "login" | "password_reset" | "account_unlock",
+  request: FastifyRequest,
+  reply: FastifyReply,
+  logger: FastifyInstance["log"]
+) {
+  try {
+    return await createOtpChallenge(user, channel, purpose, getOtpContext(request), logger);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "OTP is not configured for this admin account.";
+    reply.code(400).send({ message });
+    return null;
+  }
+}
+
 async function ensureContactColumns() {
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0");
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ");
@@ -1234,7 +1251,8 @@ export async function createApp() {
     }
 
     await query("UPDATE admin_users SET failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $1", [user.id]);
-    const challenge = await createOtpChallenge(user, body.channel as OtpChannel, "login", getOtpContext(request), app.log);
+    const challenge = await createAdminOtpChallenge(user, body.channel as OtpChannel, "login", request, reply, app.log);
+    if (!challenge) return;
     return {
       message: `OTP sent to ${challenge.destination}. It expires in 5 minutes.`,
       ...challenge,
@@ -1305,7 +1323,8 @@ export async function createApp() {
       return;
     }
 
-    const challenge = await createOtpChallenge(user, body.channel as OtpChannel, "password_reset", getOtpContext(request), app.log);
+    const challenge = await createAdminOtpChallenge(user, body.channel as OtpChannel, "password_reset", request, reply, app.log);
+    if (!challenge) return;
     return {
       message: `Password reset OTP sent to ${challenge.destination}. It expires in 5 minutes.`,
       ...challenge,
@@ -1332,7 +1351,8 @@ export async function createApp() {
       return;
     }
 
-    const challenge = await createOtpChallenge(user, body.channel as OtpChannel, "account_unlock", getOtpContext(request), app.log);
+    const challenge = await createAdminOtpChallenge(user, body.channel as OtpChannel, "account_unlock", request, reply, app.log);
+    if (!challenge) return;
     return {
       message: `Unlock OTP sent to ${challenge.destination}.`,
       ...challenge,
