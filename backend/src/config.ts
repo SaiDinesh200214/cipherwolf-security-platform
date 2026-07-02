@@ -48,6 +48,7 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   frontendOrigin,
   databaseUrl: requireProductionEnv("DATABASE_URL", "postgresql://cipherwolf:cipherwolf@localhost:5432/cipherwolf_security?schema=public"),
+  databaseSslRejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false",
   jwtSecret: requireProductionEnv("JWT_SECRET", "dev-only-change-this-secret", 32),
   dataEncryptionKey: requireProductionEnv("DATA_ENCRYPTION_KEY", process.env.JWT_SECRET || "dev-only-change-this-secret", 32),
   tokenTtl: process.env.TOKEN_TTL || "1d",

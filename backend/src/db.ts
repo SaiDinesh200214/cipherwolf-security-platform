@@ -6,9 +6,12 @@ import { config } from "./config.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const schemaFile = join(__dirname, "..", "db", "schema.sql");
+const databaseUrl = new URL(config.databaseUrl);
+const useSsl = databaseUrl.searchParams.has("sslmode") && databaseUrl.searchParams.get("sslmode") !== "disable";
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
+  ssl: useSsl ? { rejectUnauthorized: config.databaseSslRejectUnauthorized } : undefined,
   max: 12,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,

@@ -27,6 +27,7 @@ Set these Render environment variables:
 ```bash
 NODE_ENV=production
 DATABASE_URL=<supabase-postgres-url-with-sslmode-require>
+DATABASE_SSL_REJECT_UNAUTHORIZED=false
 FRONTEND_ORIGIN=<vercel-frontend-url>
 ADMIN_USERNAME=<admin-username>
 ADMIN_PASSWORD=<strong-admin-password>
