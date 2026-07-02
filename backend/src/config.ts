@@ -42,10 +42,16 @@ if (production && frontendOrigin === "*") {
   throw new Error("FRONTEND_ORIGIN cannot be * in production when credentials are enabled.");
 }
 
+const frontendOrigins = frontendOrigin
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const config = {
   port: Number(process.env.PORT || 4000),
   nodeEnv: process.env.NODE_ENV || "development",
   frontendOrigin,
+  frontendOrigins,
   databaseUrl: requireProductionEnv("DATABASE_URL", "postgresql://cipherwolf:cipherwolf@localhost:5432/cipherwolf_security?schema=public"),
   databaseSslRejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false",
   jwtSecret: requireProductionEnv("JWT_SECRET", "dev-only-change-this-secret", 32),

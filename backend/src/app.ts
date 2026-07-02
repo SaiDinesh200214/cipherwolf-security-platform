@@ -1182,7 +1182,7 @@ export async function createApp() {
     crossOriginEmbedderPolicy: false,
   });
   await app.register(cors, {
-    origin: config.frontendOrigin === "*" ? true : config.frontendOrigin,
+    origin: config.frontendOrigin === "*" ? true : config.frontendOrigins,
     credentials: true,
   });
   await app.register(rateLimit, {

@@ -1,4 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
+const DEFAULT_API_BASE_URL = import.meta.env.DEV ? "/api" : "https://pcipherwolf-backend.onrender.com/api";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, "");
 const CSRF_KEY = "cipherwolf_csrf_token";
 const LEGACY_TOKEN_KEY = "cipherwolf_admin_token";
 

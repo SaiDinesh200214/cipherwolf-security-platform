@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, Chevr
 import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "../components/common/Toast";
-import { apiRequest, clearAdminToken, getRealtimeUrl } from "../services/api";
+import { apiRequest, clearAdminToken, getApiUrl, getRealtimeUrl } from "../services/api";
 import { defaultPortfolioContent, type CmsTrashItem, type CmsTrashType, type MediaLibraryItem, type PortfolioContent, type ServiceItem, type SkillGroup, type SocialLinkItem, type WorkExperience } from "../data/portfolioContent";
 import type { ProjectItem } from "../data/projects";
 
@@ -4242,7 +4242,7 @@ function ReportsView({ summary }: { summary: AdminSummary }) {
     const toastId = showToast("Preparing Report", `Generating ${type} ${format.toUpperCase()}...`, "loading");
     try {
       const params = new URLSearchParams({ type, format, fields: fields.join(",") });
-      const response = await fetch(`/api/admin/reports?${params.toString()}`, {
+      const response = await fetch(getApiUrl(`/admin/reports?${params.toString()}`), {
         credentials: "include",
       });
       if (!response.ok) {
