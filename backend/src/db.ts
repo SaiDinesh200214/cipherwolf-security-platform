@@ -8,9 +8,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const schemaFile = join(__dirname, "..", "db", "schema.sql");
 const databaseUrl = new URL(config.databaseUrl);
 const useSsl = databaseUrl.searchParams.has("sslmode") && databaseUrl.searchParams.get("sslmode") !== "disable";
+const poolConnectionUrl = new URL(config.databaseUrl);
+
+for (const sslParam of ["sslmode", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"]) {
+  poolConnectionUrl.searchParams.delete(sslParam);
+}
 
 export const pool = new pg.Pool({
-  connectionString: config.databaseUrl,
+  connectionString: poolConnectionUrl.toString(),
   ssl: useSsl ? { rejectUnauthorized: config.databaseSslRejectUnauthorized } : undefined,
   max: 12,
   idleTimeoutMillis: 30_000,
