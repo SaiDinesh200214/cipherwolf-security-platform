@@ -80,7 +80,8 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}, retr
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    if (options.auth && response.status === 401 && !retried) {
+    const shouldRefresh = response.status === 401 || (response.status === 403 && String(data.message || "").toLowerCase().includes("csrf"));
+    if (options.auth && shouldRefresh && !retried) {
       await refreshSession();
       return apiRequest<T>(path, options, true);
     }

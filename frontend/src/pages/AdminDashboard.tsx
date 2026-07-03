@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, ChevronUp, Clock3, Code2, Database, Download, Edit3, Eye, FileDown, FileText, Flame, Gamepad2, Gauge, Globe, Globe2, Image, Images, KeyRound, Laptop, LayoutDashboard, Lock, LogOut, Mail, MapPin, MessageCircle, Monitor, MousePointerClick, Navigation, Network, Palette, Pin, Plus, Radar, RefreshCw, Route, Router, Save, Search, SearchCheck, Server, ServerCog, Shield, ShieldAlert, ShieldCheck, ShieldHalf, SlidersHorizontal, Smartphone, Tablet, Trash2, Undo2, Upload, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, ChevronUp, Clock3, Code2, Database, Download, Edit3, Eye, FileDown, FileText, Flame, Gamepad2, Gauge, Globe, Globe2, HelpCircle, Image, Images, KeyRound, Laptop, LayoutDashboard, Lock, LogOut, Mail, MapPin, MessageCircle, Monitor, MousePointerClick, Navigation, Network, Palette, Pin, Plus, Radar, RefreshCw, Route, Router, Save, Search, SearchCheck, Server, ServerCog, Shield, ShieldAlert, ShieldCheck, ShieldHalf, SlidersHorizontal, Smartphone, Tablet, Trash2, Undo2, Upload, UserRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "../components/common/Toast";
@@ -181,12 +181,6 @@ interface AdminGeoLocation {
   accuracy: number | null;
 }
 
-interface VisitorMapPoint {
-  visitor: VisitorProfile;
-  x: number;
-  y: number;
-}
-
 const emptySummary: AdminSummary = {
   totals: {
     contacts: 0,
@@ -266,6 +260,8 @@ export default function AdminDashboard() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { showToast, updateToast } = useToast();
 
   const loadSummary = useCallback(async () => {
     const data = await apiRequest<AdminSummary>("/admin/summary", { auth: true });
@@ -428,15 +424,30 @@ export default function AdminDashboard() {
 
   const unreadNotificationCount = notifications.filter((item) => !readNotifications.includes(item.id)).length;
 
-  const refreshAdminData = () => {
+  const refreshAdminData = async () => {
+    const toastId = showToast("Refreshing", "Fetching the newest admin data...", "loading");
+    setIsRefreshing(true);
     setRefreshKey((key) => key + 1);
-    loadSummary().catch(() => undefined);
+    try {
+      await loadSummary();
+      updateToast(toastId, "Refresh Complete", "Latest data is now loaded.", "success");
+    } catch (err) {
+      updateToast(toastId, "Refresh Failed", err instanceof Error ? err.message : "Could not refresh right now.", "error");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleLogout = () => {
-    void apiRequest("/auth/logout", { method: "POST" }).catch(() => undefined);
-    clearAdminToken();
-    navigate("/admin/login", { replace: true });
+    showToast("Confirm Logout", "Click confirm to close this admin session.", "loading", {
+      label: "Confirm",
+      onClick: () => {
+        void apiRequest("/auth/logout", { method: "POST" }).finally(() => {
+          clearAdminToken();
+          navigate("/admin/login", { replace: true });
+        });
+      },
+    });
   };
 
   if (error) {
@@ -489,8 +500,8 @@ export default function AdminDashboard() {
                 </div>
               </div>
               <div className="relative flex items-center gap-2">
-	                <button onClick={refreshAdminData} className="grid h-11 w-11 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Refresh dashboard">
-	                  <RefreshCw size={18} />
+	                <button onClick={() => void refreshAdminData()} className="grid h-11 w-11 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Refresh dashboard" title="Refresh: fetch the newest visitors, messages, logs, and CMS status.">
+	                  <RefreshCw size={18} className={isRefreshing ? "animate-spin" : ""} />
 	                </button>
 	                <button onClick={() => setCommandOpen(true)} className="hidden h-11 items-center gap-2 rounded-2xl border border-(--border) bg-white px-4 text-sm font-semibold text-(--text) md:flex" aria-label="Open command palette">
 	                  <Search size={17} />
@@ -690,6 +701,17 @@ function CommandPalette({ open, onClose, onNavigate }: { open: boolean; onClose:
         </div>
       </div>
     </div>
+  );
+}
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <HelpCircle size={14} className="text-(--text-secondary)" aria-label={text} />
+      <span className="pointer-events-none absolute left-1/2 top-6 z-40 hidden w-64 -translate-x-1/2 rounded-2xl border border-(--border) bg-white p-3 text-left text-xs font-semibold normal-case leading-5 tracking-normal text-(--text-secondary) shadow-2xl group-hover:block">
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -1071,7 +1093,10 @@ function CmsView() {
 function CmsField({ label, value, onChange, multiline = false }: { label: string; value: string; onChange: (value: string) => void; multiline?: boolean }) {
   return (
     <label className="block">
-      <span className="text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">{label}</span>
+      <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">
+        {label}
+        <InfoHint text={getFieldDescription(label)} />
+      </span>
       {multiline ? (
         <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={5} className="mt-2 w-full rounded-2xl border border-(--border) bg-(--bg-primary) px-4 py-3 text-sm font-semibold text-(--text) outline-none focus:border-(--primary)" />
       ) : (
@@ -1079,6 +1104,18 @@ function CmsField({ label, value, onChange, multiline = false }: { label: string
       )}
     </label>
   );
+}
+
+function getFieldDescription(label: string) {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("url")) return "This is the web address used when someone opens or downloads this item.";
+  if (normalized.includes("download name")) return "This is the file name visitors see when they download the resume.";
+  if (normalized.includes("description") || normalized.includes("intro")) return "Write simple text that explains this section to visitors.";
+  if (normalized.includes("heading") || normalized.includes("title")) return "This is the main visible title for this section.";
+  if (normalized.includes("email")) return "This email is shown or used for contact messages.";
+  if (normalized.includes("phone")) return "This phone number is shown in the contact area.";
+  if (normalized.includes("location")) return "This tells visitors where you are based.";
+  return "This field controls text or data shown on the public portfolio.";
 }
 
 function SimpleTextManager({ title, fields, onChange }: { title: string; fields: Array<[string, string]>; onChange: (index: number, value: string) => void }) {
@@ -2246,11 +2283,12 @@ function DashboardView({ summary, isLoading }: { cards: Array<{ label: string; v
   const securityTrend = buildHourlyTrend(summary.recentSecurityLogs);
   const contactTrend = buildHourlyTrend(summary.recentContacts);
   const socTrend = buildHourlyTrend(summary.recentSocEvents);
+  const navigate = useNavigate();
   const dashboardCards = [
-    { label: "Contacts", value: summary.totals.contacts, detail: `${summary.totals.newContacts} unread`, tone: "emerald", icon: <Bell size={18} />, data: contactTrend },
-    { label: "Visitors", value: summary.totals.uniqueVisitors, detail: `${summary.totals.analyticsEvents24h} events / 24h`, tone: "blue", icon: <UserRound size={18} />, data: eventTrend },
-    { label: "SOC Events", value: summary.totals.socEvents, detail: `${summary.totals.openThreats} open threats`, tone: "red", icon: <ShieldAlert size={18} />, data: socTrend },
-    { label: "Security Score", value: securityScore, detail: `${summary.recentSecurityLogs.length} security logs`, tone: "purple", icon: <Gauge size={18} />, data: securityTrend },
+    { label: "Contacts", value: summary.totals.contacts, detail: `${summary.totals.newContacts} unread`, tone: "emerald", icon: <Bell size={18} />, data: contactTrend, path: "/admin/contacts" },
+    { label: "Visitors", value: summary.totals.uniqueVisitors, detail: `${summary.totals.analyticsEvents24h} events / 24h`, tone: "blue", icon: <UserRound size={18} />, data: eventTrend, path: "/admin/visitors" },
+    { label: "SOC Events", value: summary.totals.socEvents, detail: `${summary.totals.openThreats} open threats`, tone: "red", icon: <ShieldAlert size={18} />, data: socTrend, path: "/admin/soc" },
+    { label: "Security Score", value: securityScore, detail: `${summary.recentSecurityLogs.length} security logs`, tone: "purple", icon: <Gauge size={18} />, data: securityTrend, path: "/admin/soc" },
   ];
 
   return (
@@ -2279,7 +2317,7 @@ function DashboardView({ summary, isLoading }: { cards: Array<{ label: string; v
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dashboardCards.map((card) => (
-          <PremiumMetricCard key={card.label} {...card} />
+          <PremiumMetricCard key={card.label} {...card} onOpen={() => navigate(card.path)} />
         ))}
       </section>
 
@@ -2441,14 +2479,14 @@ function CommandStatus({ label, value, tone }: { label: string; value: string; t
   );
 }
 
-function PremiumMetricCard({ label, value, detail, tone, icon, data }: { label: string; value: number; detail: string; tone: string; icon: ReactNode; data: number[] }) {
+function PremiumMetricCard({ label, value, detail, tone, icon, data, onOpen }: { label: string; value: number; detail: string; tone: string; icon: ReactNode; data: number[]; onOpen: () => void }) {
   const toneClass = tone === "red" ? "text-red-500 bg-red-50" : tone === "purple" ? "text-violet-600 bg-violet-50" : tone === "emerald" ? "text-emerald-600 bg-emerald-50" : "text-blue-600 bg-blue-50";
   const lineColor = tone === "red" ? "#ef4444" : tone === "purple" ? "#8b5cf6" : tone === "emerald" ? "#10b981" : "#2563eb";
   return (
-    <article className="group overflow-hidden rounded-3xl border border-white/80 bg-white/80 p-5 shadow-sm backdrop-blur-xl transition hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/10">
+    <button onClick={onOpen} className="group overflow-hidden rounded-3xl border border-white/80 bg-white/80 p-5 text-left shadow-sm backdrop-blur-xl transition hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-900/10" title={`Open ${label} section`}>
       <div className="flex items-start justify-between gap-3">
         <span className={`grid h-11 w-11 place-items-center rounded-2xl ${toneClass}`}>{icon}</span>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-(--text-secondary)">live data</span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-(--text-secondary)">live data <InfoHint text={`Click to open the ${label} section with related records.`} /></span>
       </div>
       <p className="mt-5 text-sm font-bold text-(--text-secondary)">{label}</p>
       <div className="mt-2 flex items-end justify-between gap-4">
@@ -2456,7 +2494,7 @@ function PremiumMetricCard({ label, value, detail, tone, icon, data }: { label: 
         <Sparkline data={data} color={lineColor} />
       </div>
       <p className="mt-3 text-xs font-semibold text-(--text-secondary)">{detail}</p>
-    </article>
+    </button>
   );
 }
 
@@ -2671,7 +2709,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
   const [manualLon, setManualLon] = useState("");
   const [activeTarget, setActiveTarget] = useState<MapTarget | null>(null);
   const [adminLocation, setAdminLocation] = useState<AdminGeoLocation | null>(null);
-  const [mapFocus, setMapFocus] = useState<"target" | "admin">("target");
+  const [mapFocus, setMapFocus] = useState<"target" | "admin" | "distance">("target");
   const [draft, setDraft] = useState({ customName: "", hostname: "", flag: "monitor", notes: "" });
 
   const loadVisitors = useCallback(async () => {
@@ -2786,37 +2824,49 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
 
   const deleteVisitor = async (visitor: VisitorProfile, mode: "trash" | "permanent") => {
     const label = visitor.customName || visitor.hostname || visitor.ip || visitor.visitorKey;
-    const message = mode === "permanent"
-      ? `Permanently delete all database events for ${label}?`
-      : `Move ${label} to visitor trash?`;
-    if (!window.confirm(message)) return;
+    const message = mode === "permanent" ? `Permanently delete all database events for ${label}.` : `Move ${label} to visitor trash.`;
 
-    const toastId = showToast(mode === "permanent" ? "Deleting Permanently" : "Moving To Trash", "Updating visitor records...", "loading");
-    try {
-      await apiRequest(`/admin/visitors/${encodeURIComponent(visitor.visitorKey)}?mode=${mode}`, {
-        method: "DELETE",
-        auth: true,
-      });
-      await loadVisitors();
-      updateToast(toastId, mode === "permanent" ? "Permanently Deleted" : "Moved To Trash", mode === "permanent" ? "Visitor records were removed from the database." : "Visitor records are now in trash.", "success");
-    } catch (err) {
-      updateToast(toastId, "Delete Failed", err instanceof Error ? err.message : "Please try again.", "error");
-    }
+    showToast(mode === "permanent" ? "Confirm Permanent Delete" : "Confirm Delete", message, "loading", {
+      label: "Confirm",
+      onClick: () => {
+        const runDelete = async () => {
+          const toastId = showToast(mode === "permanent" ? "Deleting Permanently" : "Moving To Trash", "Updating visitor records...", "loading");
+          try {
+            await apiRequest(`/admin/visitors/${encodeURIComponent(visitor.visitorKey)}?mode=${mode}`, {
+              method: "DELETE",
+              auth: true,
+            });
+            await loadVisitors();
+            updateToast(toastId, mode === "permanent" ? "Permanently Deleted" : "Moved To Trash", mode === "permanent" ? "Visitor records were removed from the database." : "Visitor records are now in trash.", "success");
+          } catch (err) {
+            updateToast(toastId, "Delete Failed", err instanceof Error ? err.message : "Please try again.", "error");
+          }
+        };
+        void runDelete();
+      },
+    });
   };
 
   const deleteVisitorEvent = async (eventId: string) => {
-    if (!window.confirm("Move this single visit/action to trash?")) return;
-    const toastId = showToast("Deleting Visit", "Moving this visit/action to trash...", "loading");
-    try {
-      await apiRequest(`/admin/visitor-events/${encodeURIComponent(eventId)}?mode=trash`, {
-        method: "DELETE",
-        auth: true,
-      });
-      await loadVisitors();
-      updateToast(toastId, "Visit Deleted", "This visit/action was moved to trash.", "success");
-    } catch (err) {
-      updateToast(toastId, "Delete Failed", err instanceof Error ? err.message : "Please try again.", "error");
-    }
+    showToast("Confirm Delete", "Move this single visit or action to trash.", "loading", {
+      label: "Confirm",
+      onClick: () => {
+        const runDelete = async () => {
+          const toastId = showToast("Deleting Visit", "Moving this visit/action to trash...", "loading");
+          try {
+            await apiRequest(`/admin/visitor-events/${encodeURIComponent(eventId)}?mode=trash`, {
+              method: "DELETE",
+              auth: true,
+            });
+            await loadVisitors();
+            updateToast(toastId, "Visit Deleted", "This visit/action was moved to trash.", "success");
+          } catch (err) {
+            updateToast(toastId, "Delete Failed", err instanceof Error ? err.message : "Please try again.", "error");
+          }
+        };
+        void runDelete();
+      },
+    });
   };
 
   const manualTrackedVisitor = selectedVisitor
@@ -2869,8 +2919,6 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy ?? null,
         });
-        setManualLat(String(position.coords.latitude));
-        setManualLon(String(position.coords.longitude));
         updateToast(toastId, "Location Ready", "Distance can now be calculated from your blue-dot location.", "success");
       },
       (err) => {
@@ -2897,7 +2945,8 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
   };
 
   const calculateSelectedDistance = () => {
-    requestAdminLocation();
+    if (!adminLocation) requestAdminLocation();
+    setMapFocus("distance");
   };
 
   return (
@@ -2913,7 +2962,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-xl font-black text-(--text)">Visitor Map</h2>
-            <p className="mt-1 text-sm text-(--text-secondary)">Default view shows each IP group as a colored dot. Hover for metadata or click a dot to focus that visitor.</p>
+            <p className="mt-1 text-sm text-(--text-secondary)">Choose one visitor, your location, or distance mode. The map changes focus so locations do not mix unless you ask for distance.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
             <input value={manualLat} onChange={(event) => setManualLat(event.target.value)} placeholder="Latitude" className="h-11 rounded-2xl border border-(--border) bg-(--bg-primary) px-4 text-sm font-semibold outline-none" />
@@ -3567,15 +3616,18 @@ function VisitorMap({
   target: MapTarget;
   adminLocation: AdminGeoLocation | null;
   distance: number | null;
-  focus: "target" | "admin";
-  setFocus: (focus: "target" | "admin") => void;
+  focus: "target" | "admin" | "distance";
+  setFocus: (focus: "target" | "admin" | "distance") => void;
   compact?: boolean;
   onUseMyLocation: () => void;
   onVisitorFocus: (visitor: VisitorProfile) => void;
 }) {
-  const mapUrl = getGoogleMapEmbedUrl(focus === "admin" && adminLocation ? `${adminLocation.latitude},${adminLocation.longitude}` : target.query);
+  void visitors;
+  void onVisitorFocus;
+  const mapUrl = focus === "distance" && adminLocation && target.latitude !== null && target.longitude !== null
+    ? getGoogleDirectionsEmbedUrl(`${adminLocation.latitude},${adminLocation.longitude}`, `${target.latitude},${target.longitude}`)
+    : getGoogleMapEmbedUrl(focus === "admin" && adminLocation ? `${adminLocation.latitude},${adminLocation.longitude}` : target.query);
   const googleMapsUrl = getGoogleMapsUrl(target.query);
-  const visitorPoints = useMemo(() => getVisitorMapPoints(visitors), [visitors]);
 
   return (
     <div className={`relative mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#dfe8ef] ${compact ? "aspect-[24/8]" : "aspect-[16/9]"}`}>
@@ -3587,28 +3639,6 @@ function VisitorMap({
         referrerPolicy="no-referrer-when-downgrade"
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/20" />
-      <div className="absolute inset-0">
-        {visitorPoints.map((point) => (
-          <button
-            key={point.visitor.visitorKey}
-            onClick={() => onVisitorFocus(point.visitor)}
-            className="group absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/90 bg-white/80 shadow-xl shadow-slate-900/20 backdrop-blur"
-            style={{ left: `${point.x}%`, top: `${point.y}%` }}
-            title={`${point.visitor.customName || point.visitor.hostname || point.visitor.ip || "Visitor"} metadata`}
-            type="button"
-          >
-            <span className="h-3.5 w-3.5 rounded-full ring-2 ring-white" style={{ backgroundColor: point.visitor.color }} />
-            <span className="pointer-events-none absolute left-1/2 top-8 z-30 hidden w-64 -translate-x-1/2 rounded-2xl border border-white/80 bg-white/95 p-3 text-left text-xs text-(--text) shadow-2xl shadow-slate-900/20 group-hover:block">
-              <span className="block font-black">{point.visitor.customName || point.visitor.hostname || point.visitor.ip || "Unknown visitor"}</span>
-              <span className="mt-1 block text-(--text-secondary)">{point.visitor.city}, {point.visitor.country}</span>
-              <span className="mt-2 block font-semibold">{point.visitor.browser} / {point.visitor.os}</span>
-              <span className="mt-1 block text-(--text-secondary)">Risk {point.visitor.threatScore}/100 · {point.visitor.eventCount} events</span>
-              <span className="mt-1 block text-(--text-secondary)">GPS {formatCoordinate(point.visitor.latitude)}, {formatCoordinate(point.visitor.longitude)}</span>
-              <span className="mt-2 block font-black text-[#101828]">Click to zoom this IP group</span>
-            </span>
-          </button>
-        ))}
-      </div>
       <button
         onClick={() => {
           if (!adminLocation) {
@@ -3633,6 +3663,15 @@ function VisitorMap({
         <MapPin size={17} style={{ color: visitor.color }} />
         Recenter visitor
       </button>
+      {adminLocation && target.latitude !== null && target.longitude !== null && (
+        <button
+          onClick={() => setFocus("distance")}
+          className="absolute bottom-20 right-5 inline-flex items-center gap-2 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-black text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl"
+        >
+          <Route size={17} />
+          Distance route
+        </button>
+      )}
       <div className="absolute right-5 top-5 max-w-[min(24rem,calc(100%-2.5rem))] rounded-3xl border border-white/80 bg-white/90 p-4 text-sm text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -3649,7 +3688,7 @@ function VisitorMap({
       </div>
       <div className="absolute left-5 top-5 rounded-3xl border border-white/80 bg-white/90 p-4 text-sm font-semibold text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl">
         <p className="text-xs font-black uppercase tracking-wide text-(--text-secondary)">Distance</p>
-        <p className="mt-1 text-lg font-black">{distance ? `${formatDistanceKm(distance)} straight-line` : adminLocation ? "Coordinates needed for distance" : "Click Track to calculate"}</p>
+        <p className="mt-1 text-lg font-black">{distance ? `${formatDistanceKm(distance)} straight-line` : adminLocation ? "Coordinates needed for distance" : "Click Distance to calculate"}</p>
         {adminLocation && <p className="mt-1 text-xs text-(--text-secondary)">Your GPS accuracy: {adminLocation.accuracy ? `${Math.round(adminLocation.accuracy)}m` : "unknown"}</p>}
       </div>
     </div>
@@ -3746,48 +3785,6 @@ function formatDistanceKm(distance: number) {
   return `${Math.round(distance).toLocaleString()} km`;
 }
 
-function formatCoordinate(value: number | null) {
-  return value === null ? "Not detected" : value.toFixed(6);
-}
-
-function getVisitorMapPoints(visitors: VisitorProfile[]): VisitorMapPoint[] {
-  const visitorsWithCoordinates = visitors
-    .map((visitor) => ({
-      visitor,
-      latitude: visitor.latitude ?? visitor.ipLatitude,
-      longitude: visitor.longitude ?? visitor.ipLongitude,
-    }))
-    .filter((item): item is { visitor: VisitorProfile; latitude: number; longitude: number } => item.latitude !== null && item.longitude !== null);
-
-  if (visitorsWithCoordinates.length === 0) {
-    return visitors.map((visitor, index) => {
-      const fallback = getFallbackMapPoint(visitor.visitorKey || visitor.visitorId || visitor.ip || String(index), index);
-      return { visitor, x: fallback.x, y: fallback.y };
-    });
-  }
-
-  const latitudes = visitorsWithCoordinates.map((item) => item.latitude);
-  const longitudes = visitorsWithCoordinates.map((item) => item.longitude);
-  const minLat = Math.min(...latitudes);
-  const maxLat = Math.max(...latitudes);
-  const minLon = Math.min(...longitudes);
-  const maxLon = Math.max(...longitudes);
-  const latRange = maxLat - minLat;
-  const lonRange = maxLon - minLon;
-
-  return visitorsWithCoordinates.map((item, index) => {
-    const spreadAngle = (index / Math.max(visitorsWithCoordinates.length, 1)) * Math.PI * 2;
-    const samePlaceOffset = visitorsWithCoordinates.length > 1 ? 5 : 0;
-    const rawX = lonRange === 0 ? 50 + Math.cos(spreadAngle) * samePlaceOffset : 14 + ((item.longitude - minLon) / lonRange) * 72;
-    const rawY = latRange === 0 ? 50 + Math.sin(spreadAngle) * samePlaceOffset : 14 + ((maxLat - item.latitude) / latRange) * 72;
-    return {
-      visitor: item.visitor,
-      x: clamp(rawX, 8, 92),
-      y: clamp(rawY, 8, 92),
-    };
-  });
-}
-
 function getFallbackMapPoint(seed: string, index: number) {
   const hash = Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), index * 37);
   return {
@@ -3798,6 +3795,10 @@ function getFallbackMapPoint(seed: string, index: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function formatCoordinate(value: number | null) {
+  return value === null ? "Not detected" : value.toFixed(6);
 }
 
 function getBestVisitorTarget(visitor: VisitorProfile): MapTarget {
@@ -3848,6 +3849,10 @@ function getGoogleMapEmbedUrl(query: string) {
   const normalized = query.trim().toLowerCase();
   const isPrivateOrUnknown = !normalized || normalized === "unknown visitor location" || normalized === "127.0.0.1" || normalized.startsWith("10.") || normalized.startsWith("192.168.") || normalized.startsWith("172.");
   return `https://maps.google.com/maps?q=${encodeURIComponent(isPrivateOrUnknown ? "world map" : query)}&z=${isPrivateOrUnknown ? 2 : 13}&output=embed`;
+}
+
+function getGoogleDirectionsEmbedUrl(origin: string, destination: string) {
+  return `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
 }
 
 function getGoogleMapsUrl(query: string) {

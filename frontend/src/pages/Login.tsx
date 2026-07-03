@@ -75,13 +75,10 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    apiRequest("/auth/me", { auth: true })
-      .then(() => navigate(redirectTo, { replace: true }))
-      .catch(() => {
-        // Stale tokens must not move the user into the admin area.
-        clearAdminToken();
-      });
-  }, [navigate, redirectTo]);
+    // Opening the login screen should always show the login form.
+    // Existing admin cookies still protect /admin, but they should not skip /admin/login.
+    clearAdminToken();
+  }, []);
 
   useEffect(() => {
     if (mode !== "loginOtp" && mode !== "reset" && mode !== "unlockOtp") return;

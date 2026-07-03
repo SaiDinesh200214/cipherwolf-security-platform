@@ -1450,6 +1450,7 @@ export async function createApp() {
     if (refreshToken) {
       await query("UPDATE auth_refresh_tokens SET revoked_at = now() WHERE token_hash = $1", [hashToken(refreshToken)]);
     }
+    await logAdminSecurityEvent(request, "logout", "Admin logged out from this device.").catch((err) => request.log.warn({ err }, "Logout audit log failed"));
     reply.header("Set-Cookie", [clearCookieHeader("cw_access"), clearCookieHeader("cw_refresh")]);
     return { message: "Logged out." };
   });
@@ -1824,6 +1825,7 @@ export async function createApp() {
       reply.code(404).send({ message: "Contact message not found." });
       return;
     }
+    await logAdminSecurityEvent(request, "contact_archived", "Admin archived a contact message.", request.url, { contactId: params.id });
     getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after contact delete"));
     reply.send({ message: "Contact archived." });
   });
@@ -1869,6 +1871,7 @@ export async function createApp() {
         [visitorKey]
       );
       await query("DELETE FROM visitor_notes WHERE visitor_key = $1", [visitorKey]);
+      await logAdminSecurityEvent(request, "visitor_deleted", "Admin permanently deleted a visitor profile.", request.url, { visitorKey, deletedEvents: Number(deletedEvents?.count || 0) });
       getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after permanent visitor delete"));
       reply.send({ message: "Visitor permanently deleted.", deletedEvents: Number(deletedEvents?.count || 0) });
       return;
@@ -1890,6 +1893,7 @@ export async function createApp() {
       return;
     }
 
+    await logAdminSecurityEvent(request, "visitor_trashed", "Admin moved a visitor profile to trash.", request.url, { visitorKey, trashedEvents: Number(trashedEvents?.count || 0) });
     getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after visitor trash"));
     reply.send({ message: "Visitor moved to trash.", trashedEvents: Number(trashedEvents?.count || 0) });
   });
@@ -1905,6 +1909,7 @@ export async function createApp() {
         reply.code(404).send({ message: "Visit event not found." });
         return;
       }
+      await logAdminSecurityEvent(request, "visitor_event_deleted", "Admin permanently deleted one visitor event.", request.url, { eventId: params.eventId });
       getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after event delete"));
       reply.send({ message: "Visit event permanently deleted." });
       return;
@@ -1918,6 +1923,7 @@ export async function createApp() {
       reply.code(404).send({ message: "Visit event not found or already in trash." });
       return;
     }
+    await logAdminSecurityEvent(request, "visitor_event_trashed", "Admin moved one visitor event to trash.", request.url, { eventId: params.eventId });
     getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after event trash"));
     reply.send({ message: "Visit event moved to trash." });
   });

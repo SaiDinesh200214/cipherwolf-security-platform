@@ -55,13 +55,16 @@ function detectBrowser(userAgent: string): string {
 function otpText(input: SendOtpInput): string {
   return [
     "CipherWolf Security Alert",
+    "---------------------------",
     "",
-    `OTP: ${input.code}`,
-    `Action: ${purposeLabel(input.purpose)}`,
-    `Account: ${input.username}`,
-    "Valid for: 5 minutes",
+    `Your OTP is ${input.code}`,
+    "",
+    `Purpose: ${purposeLabel(input.purpose)}`,
+    `Admin account: ${input.username}`,
+    "Valid for: 5 minutes only",
     "",
     "Request details",
+    "---------------",
     `Time: ${input.context.requestedAt}`,
     `IP: ${input.context.ip}`,
     `Device: ${detectDevice(input.context.userAgent)}`,
@@ -73,19 +76,24 @@ function otpText(input: SendOtpInput): string {
 
 function otpHtml(input: SendOtpInput): string {
   return `
-    <div style="font-family:Inter,Arial,sans-serif;background:#f7f6f3;padding:24px;color:#111">
-      <div style="max-width:560px;margin:auto;background:#fff;border:1px solid #e5e1dc;border-radius:20px;padding:28px">
-        <p style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#777;margin:0 0 12px">CipherWolf Security Alert</p>
-        <h1 style="font-size:28px;margin:0 0 18px">Admin OTP: ${input.code}</h1>
-        <p style="font-size:15px;line-height:1.6;margin:0 0 18px">Use this code to continue your ${purposeLabel(input.purpose)}. It expires in <b>5 minutes</b>.</p>
-        <table style="width:100%;border-collapse:collapse;font-size:14px">
-          <tr><td style="padding:8px 0;color:#777">Account</td><td style="padding:8px 0;text-align:right">${input.username}</td></tr>
-          <tr><td style="padding:8px 0;color:#777">Time</td><td style="padding:8px 0;text-align:right">${input.context.requestedAt}</td></tr>
-          <tr><td style="padding:8px 0;color:#777">IP</td><td style="padding:8px 0;text-align:right">${input.context.ip}</td></tr>
-          <tr><td style="padding:8px 0;color:#777">Device</td><td style="padding:8px 0;text-align:right">${detectDevice(input.context.userAgent)}</td></tr>
-          <tr><td style="padding:8px 0;color:#777">Browser</td><td style="padding:8px 0;text-align:right">${detectBrowser(input.context.userAgent)}</td></tr>
+    <div style="font-family:Inter,Arial,sans-serif;background:#f4f7fb;padding:28px;color:#101828">
+      <div style="max-width:620px;margin:auto;background:#ffffff;border:1px solid #e4e7ec;border-radius:24px;overflow:hidden;box-shadow:0 20px 55px rgba(16,24,40,.10)">
+        <div style="background:#101828;color:#ffffff;padding:24px 28px">
+          <p style="font-size:12px;letter-spacing:2.4px;text-transform:uppercase;color:#b8c4d8;margin:0 0 10px">CipherWolf Security Platform</p>
+          <h1 style="font-size:26px;line-height:1.2;margin:0">Admin verification code</h1>
+        </div>
+        <div style="padding:28px">
+          <p style="font-size:15px;line-height:1.7;margin:0 0 18px;color:#475467">Use this code to continue your ${purposeLabel(input.purpose)}. It expires in <b>5 minutes</b>.</p>
+          <div style="font-size:34px;letter-spacing:10px;font-weight:800;text-align:center;background:#f2f4f7;border:1px solid #e4e7ec;border-radius:18px;padding:18px 12px;margin:20px 0;color:#101828">${input.code}</div>
+          <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Account</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.username}</td></tr>
+          <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Time</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.context.requestedAt}</td></tr>
+          <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">IP</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.context.ip}</td></tr>
+          <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Device</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${detectDevice(input.context.userAgent)}</td></tr>
+          <tr><td style="padding:10px 0;color:#667085">Browser</td><td style="padding:10px 0;text-align:right">${detectBrowser(input.context.userAgent)}</td></tr>
         </table>
-        <p style="margin:22px 0 0;font-size:13px;line-height:1.6;color:#8a3d00">If this was not you, do not share this OTP and reset your admin password immediately.</p>
+          <p style="margin:22px 0 0;font-size:13px;line-height:1.6;color:#b42318;background:#fff1f0;border:1px solid #ffd6d2;border-radius:14px;padding:12px 14px">If this was not you, do not share this OTP and reset your admin password immediately.</p>
+        </div>
       </div>
     </div>
   `;
@@ -195,6 +203,7 @@ export async function sendContactNotification(input: SendContactNotificationInpu
 
   const text = [
     "New CipherWolf contact message",
+    "-------------------------------",
     "",
     `Name: ${input.name}`,
     `Email: ${input.email}`,
@@ -207,10 +216,32 @@ export async function sendContactNotification(input: SendContactNotificationInpu
     input.message,
   ].join("\n");
 
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;background:#f4f7fb;padding:28px;color:#101828">
+      <div style="max-width:680px;margin:auto;background:#fff;border:1px solid #e4e7ec;border-radius:24px;overflow:hidden;box-shadow:0 20px 55px rgba(16,24,40,.10)">
+        <div style="background:#101828;color:#fff;padding:24px 28px">
+          <p style="font-size:12px;letter-spacing:2.4px;text-transform:uppercase;color:#b8c4d8;margin:0 0 10px">CipherWolf Portfolio</p>
+          <h1 style="font-size:26px;margin:0">New contact message</h1>
+        </div>
+        <div style="padding:28px">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:22px">
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Name</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.name}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Email</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.email}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Subject</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.subject}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Location</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.location}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085">Visitor ID</td><td style="padding:10px 0;text-align:right">${input.visitorId || "Unknown"}</td></tr>
+          </table>
+          <div style="background:#f8fafc;border:1px solid #e4e7ec;border-radius:18px;padding:18px;color:#344054;font-size:15px;line-height:1.7;white-space:pre-wrap">${input.message}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
   return sendResendEmail({
     to: input.to,
     replyTo: input.email,
     subject: `New portfolio contact: ${input.subject}`,
     text,
+    html,
   });
 }
