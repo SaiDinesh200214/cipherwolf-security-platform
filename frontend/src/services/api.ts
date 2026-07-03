@@ -58,18 +58,21 @@ async function refreshSession() {
 export async function apiRequest<T>(path: string, options: ApiOptions = {}, retried = false): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
+  const method = options.method || "GET";
+  const body = isUnsafeMethod(method) && options.body === undefined ? JSON.stringify({}) : options.body;
 
   let csrfToken = getAdminToken();
-  if (options.auth && isUnsafeMethod(options.method) && !csrfToken) {
+  if (options.auth && isUnsafeMethod(method) && !csrfToken) {
     await refreshSession();
     csrfToken = getAdminToken();
   }
-  if (options.auth && isUnsafeMethod(options.method) && csrfToken) {
+  if (options.auth && isUnsafeMethod(method) && csrfToken) {
     headers.set("X-CSRF-Token", csrfToken);
   }
 
   const response = await fetch(getApiUrl(path), {
     ...options,
+    body,
     headers,
     credentials: "include",
   });

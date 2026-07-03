@@ -436,7 +436,7 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     void apiRequest("/auth/logout", { method: "POST" }).catch(() => undefined);
     clearAdminToken();
-    navigate("/login");
+    navigate("/admin/login", { replace: true });
   };
 
   if (error) {
@@ -4436,7 +4436,7 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
       await apiRequest("/auth/logout-all", { method: "POST", auth: true });
       clearAdminToken();
       updateToast(toastId, "Sessions Revoked", "All devices have been logged out.", "success");
-      window.location.href = "/login";
+      window.location.href = "/admin/login";
     } catch (err) {
       updateToast(toastId, "Logout Failed", err instanceof Error ? err.message : "Could not revoke sessions.", "error");
     }
