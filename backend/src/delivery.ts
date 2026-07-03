@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import { config } from "./config.js";
 import type { OtpChannel, OtpPurpose } from "./otp.js";
 
@@ -96,46 +95,57 @@ function isEmailSender(value: string) {
   return /^[^@\s]+@[^@\s]+$/.test(value) || /<[^@\s]+@[^>\s]+>/.test(value);
 }
 
-function hasSmtpCredentials() {
+function hasResendCredentials() {
   return Boolean(
-    config.smtpUser &&
     config.smtpPass &&
     config.smtpPass.startsWith("re_") &&
     (!config.smtpFrom || isEmailSender(config.smtpFrom))
   );
 }
 
-function createSmtpTransporter() {
-  return nodemailer.createTransport({
-    host: config.smtpHost,
-    port: config.smtpPort,
-    secure: config.smtpSecure,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    auth: {
-      user: config.smtpUser,
-      pass: config.smtpPass,
+async function sendResendEmail(input: {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  replyTo?: string;
+}) {
+  if (!hasResendCredentials()) return false;
+
+  const body: Record<string, unknown> = {
+    from: config.smtpFrom || "CipherWolf <onboarding@resend.dev>",
+    to: [input.to],
+    subject: input.subject,
+    text: input.text,
+  };
+
+  if (input.html) body.html = input.html;
+  if (input.replyTo) body.reply_to = input.replyTo;
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.smtpPass}`,
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify(body),
   });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Resend email delivery failed: ${detail}`);
+  }
+
+  return true;
 }
 
 async function sendEmailOtp(input: SendOtpInput) {
-  if (!hasSmtpCredentials()) {
-    return false;
-  }
-
-  const transporter = createSmtpTransporter();
-
-  await transporter.sendMail({
-    from: config.smtpFrom || config.smtpUser,
+  return sendResendEmail({
     to: input.destination,
     subject: `CipherWolf Security OTP for ${purposeLabel(input.purpose)}`,
     text: otpText(input),
     html: otpHtml(input),
   });
-
-  return true;
 }
 
 async function sendTwilioWhatsappOtp(input: SendOtpInput) {
@@ -179,11 +189,9 @@ export async function sendOtp(input: SendOtpInput) {
 }
 
 export async function sendContactNotification(input: SendContactNotificationInput) {
-  if (!input.to || !hasSmtpCredentials()) {
+  if (!input.to) {
     return false;
   }
-
-  const transporter = createSmtpTransporter();
 
   const text = [
     "New CipherWolf contact message",
@@ -199,13 +207,10 @@ export async function sendContactNotification(input: SendContactNotificationInpu
     input.message,
   ].join("\n");
 
-  await transporter.sendMail({
-    from: config.smtpFrom || config.smtpUser,
+  return sendResendEmail({
     to: input.to,
     replyTo: input.email,
     subject: `New portfolio contact: ${input.subject}`,
     text,
   });
-
-  return true;
 }
