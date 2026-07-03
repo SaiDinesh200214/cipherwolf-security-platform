@@ -92,20 +92,40 @@ function otpHtml(input: SendOtpInput): string {
   `;
 }
 
-async function sendEmailOtp(input: SendOtpInput) {
-  if (!config.smtpUser || !config.smtpPass || config.smtpPass === "your-gmail-app-password") {
-    return false;
-  }
+function isEmailSender(value: string) {
+  return /^[^@\s]+@[^@\s]+$/.test(value) || /<[^@\s]+@[^>\s]+>/.test(value);
+}
 
-  const transporter = nodemailer.createTransport({
+function hasSmtpCredentials() {
+  return Boolean(
+    config.smtpUser &&
+    config.smtpPass &&
+    config.smtpPass.startsWith("re_") &&
+    (!config.smtpFrom || isEmailSender(config.smtpFrom))
+  );
+}
+
+function createSmtpTransporter() {
+  return nodemailer.createTransport({
     host: config.smtpHost,
     port: config.smtpPort,
     secure: config.smtpSecure,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     auth: {
       user: config.smtpUser,
       pass: config.smtpPass,
     },
   });
+}
+
+async function sendEmailOtp(input: SendOtpInput) {
+  if (!hasSmtpCredentials()) {
+    return false;
+  }
+
+  const transporter = createSmtpTransporter();
 
   await transporter.sendMail({
     from: config.smtpFrom || config.smtpUser,
@@ -159,19 +179,11 @@ export async function sendOtp(input: SendOtpInput) {
 }
 
 export async function sendContactNotification(input: SendContactNotificationInput) {
-  if (!input.to || !config.smtpUser || !config.smtpPass || config.smtpPass === "your-gmail-app-password") {
+  if (!input.to || !hasSmtpCredentials()) {
     return false;
   }
 
-  const transporter = nodemailer.createTransport({
-    host: config.smtpHost,
-    port: config.smtpPort,
-    secure: config.smtpSecure,
-    auth: {
-      user: config.smtpUser,
-      pass: config.smtpPass,
-    },
-  });
+  const transporter = createSmtpTransporter();
 
   const text = [
     "New CipherWolf contact message",

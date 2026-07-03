@@ -47,6 +47,7 @@ async function refreshSession() {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || "Session refresh failed.");

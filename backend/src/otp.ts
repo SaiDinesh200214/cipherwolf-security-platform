@@ -75,6 +75,9 @@ export async function createOtpChallenge(
     code,
     username: target.username,
     context,
+  }).catch((err) => {
+    logger.warn({ err, purpose, channel, destination }, "OTP delivery failed. Using development terminal fallback.");
+    return false;
   });
 
   if (!delivered) {

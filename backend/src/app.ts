@@ -1613,6 +1613,8 @@ export async function createApp() {
         location,
         visitorId: contact.visitorId,
         createdAt: new Date(contact.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+      }).then((delivered) => {
+        if (!delivered) request.log.warn("Contact email notification credentials missing or invalid.");
       }).catch((err) => request.log.warn({ err }, "Contact email notification failed"));
     }
 
