@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, ChevronUp, Clock3, Code2, Database, Download, Edit3, Eye, FileDown, FileText, Flame, Gamepad2, Gauge, Globe, Globe2, HelpCircle, Image, Images, KeyRound, Laptop, LayoutDashboard, Lock, LogOut, Mail, MapPin, MessageCircle, Monitor, MousePointerClick, Navigation, Network, Palette, Pin, Plus, Radar, RefreshCw, Route, Router, Save, Search, SearchCheck, Server, ServerCog, Shield, ShieldAlert, ShieldCheck, ShieldHalf, SlidersHorizontal, Smartphone, Tablet, Trash2, Undo2, Upload, UserRound, X } from "lucide-react";
+import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, ChevronUp, Clock3, Code2, Database, Download, Edit3, Eye, FileDown, FileText, Flame, Gamepad2, Gauge, Globe, Globe2, GripVertical, HelpCircle, Image, Images, KeyRound, Laptop, LayoutDashboard, Lock, LogOut, Mail, MapPin, MessageCircle, Monitor, MousePointerClick, Navigation, Network, Palette, Pin, Plus, Radar, RefreshCw, Route, Router, Save, Search, SearchCheck, Server, ServerCog, Shield, ShieldAlert, ShieldCheck, ShieldHalf, SlidersHorizontal, Smartphone, Tablet, Trash2, Undo2, Upload, UserRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "../components/common/Toast";
@@ -1079,7 +1079,7 @@ function CmsView() {
           {activeManager === "resume" && <ResumeManager content={content} updateContent={updateContent} />}
           {activeManager === "media" && <MediaManager content={content} updateContent={updateContent} />}
           {activeManager === "social" && <SocialManager content={content} updateContent={updateContent} />}
-          {activeManager === "contact" && <SimpleTextManager title="Contact Manager" fields={[["Heading", content.contact.heading], ["Intro", content.contact.intro], ["Location", content.contact.location], ["Email", content.contact.email], ["Phone", content.contact.phone]]} onChange={(index, value) => updateContent((draft) => { const keys = ["heading", "intro", "location", "email", "phone"] as const; draft.contact[keys[index]] = value; })} />}
+          {activeManager === "contact" && <ContactManager content={content} updateContent={updateContent} />}
           {activeManager === "seo" && <SimpleTextManager title="SEO Manager" fields={[["Page title", content.seo.title], ["Meta description", content.seo.description]]} onChange={(index, value) => updateContent((draft) => { if (index === 0) draft.seo.title = value; else draft.seo.description = value; })} />}
           {activeManager === "settings" && <SettingsManager content={content} updateContent={updateContent} />}
           {activeManager === "trash" && <TrashManager content={content} updateContent={updateContent} />}
@@ -1124,6 +1124,93 @@ function SimpleTextManager({ title, fields, onChange }: { title: string; fields:
       <h3 className="text-lg font-black text-(--text)">{title}</h3>
       {fields.map(([label, value], index) => <CmsField key={label} label={label} value={value} multiline={value.length > 90 || label.toLowerCase().includes("intro") || label.toLowerCase().includes("description")} onChange={(next) => onChange(index, next)} />)}
     </div>
+  );
+}
+
+function ContactManager({ content, updateContent }: { content: PortfolioContent; updateContent: CmsUpdateContent }) {
+  const { showToast } = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContact, setDraftContact] = useState(() => structuredClone(content.contact));
+
+  useEffect(() => {
+    if (!isEditing) setDraftContact(structuredClone(content.contact));
+  }, [content.contact, isEditing]);
+
+  const saveContact = () => {
+    updateContent((draft) => {
+      draft.contact = structuredClone(draftContact);
+    }, { title: "Contact Updated", message: "Contact section changes were saved. Undo is available." });
+    setIsEditing(false);
+    showToast("Contact Saved", "Contact manager draft was updated.", "success");
+  };
+
+  const cancelContact = () => {
+    setDraftContact(structuredClone(content.contact));
+    setIsEditing(false);
+    showToast("Edit Cancelled", "Contact changes were discarded.", "success");
+  };
+
+  const contactRows = [
+    ["Heading", content.contact.heading],
+    ["Intro", content.contact.intro],
+    ["Location", content.contact.location],
+    ["Email", content.contact.email],
+    ["Phone", content.contact.phone],
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-(--text)">Contact Manager</h3>
+          <p className="mt-1 text-sm font-semibold text-(--text-secondary)">Open edit mode before changing the public contact section.</p>
+        </div>
+        {!isEditing ? (
+          <button onClick={() => setIsEditing(true)} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
+            <Edit3 size={17} />
+            Edit Contact
+          </button>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button onClick={cancelContact} className="inline-flex items-center gap-2 rounded-2xl border border-(--border) bg-white px-4 py-3 text-sm font-black text-(--text)">
+              <X size={17} />
+              Cancel
+            </button>
+            <button onClick={saveContact} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
+              <Save size={17} />
+              Save Contact
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!isEditing ? (
+        <div className="grid gap-3 rounded-3xl border border-(--border) bg-(--bg-primary) p-4">
+          {contactRows.map(([label, value]) => (
+            <div key={label} className="rounded-2xl bg-white p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">{label}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm font-semibold text-(--text)">{value || "Not set"}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <CmsField label="Heading" value={draftContact.heading} onChange={(value) => setDraftContact({ ...draftContact, heading: value })} />
+          <CmsField label="Intro" value={draftContact.intro} multiline onChange={(value) => setDraftContact({ ...draftContact, intro: value })} />
+          <CmsField label="Location" value={draftContact.location} onChange={(value) => setDraftContact({ ...draftContact, location: value })} />
+          <CmsField label="Email" value={draftContact.email} onChange={(value) => setDraftContact({ ...draftContact, email: value })} />
+          <CmsField label="Phone" value={draftContact.phone} onChange={(value) => setDraftContact({ ...draftContact, phone: value })} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DragHandle() {
+  return (
+    <span className="grid h-10 w-10 cursor-grab place-items-center rounded-2xl bg-white text-(--text-secondary)" title="Drag to rearrange">
+      <GripVertical size={18} />
+    </span>
   );
 }
 
@@ -1312,6 +1399,7 @@ function SkillsManager({ content, updateContent }: { content: PortfolioContent; 
   const { showToast } = useToast();
   const [editingIndex, setEditingIndex] = useState<number | "new" | null>(null);
   const [draftSkill, setDraftSkill] = useState<SkillGroup | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   const openEditor = (skill: SkillGroup, index: number | "new") => {
     setEditingIndex(index);
@@ -1350,7 +1438,19 @@ function SkillsManager({ content, updateContent }: { content: PortfolioContent; 
 
       <div className="grid gap-4 lg:grid-cols-2">
         {content.skills.groups.map((skill, index) => (
-          <article key={`${skill.title}-${index}`} className="rounded-3xl border border-(--border) bg-(--bg-primary) p-4">
+          <article
+            key={`${skill.title}-${index}`}
+            draggable
+            onDragStart={() => setDraggingIndex(index)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggingIndex === null) return;
+              updateContent((draft) => { moveArrayItem(draft.skills.groups, draggingIndex, index); }, { title: "Order Updated", message: `${skill.title} was moved. Undo is available.` });
+              setDraggingIndex(null);
+            }}
+            onDragEnd={() => setDraggingIndex(null)}
+            className={`rounded-3xl border border-(--border) bg-(--bg-primary) p-4 transition ${draggingIndex === index ? "opacity-60 ring-2 ring-[#101828]" : ""}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-(--text-secondary)">{skill.icon}</p>
@@ -1358,7 +1458,7 @@ function SkillsManager({ content, updateContent }: { content: PortfolioContent; 
                 <p className="mt-1 text-sm font-semibold text-(--text-secondary)">{skill.subtitle}</p>
               </div>
               <div className="flex items-center gap-2">
-                <OrderButtons index={index} total={content.skills.groups.length} onMove={(toIndex) => updateContent((draft) => { moveArrayItem(draft.skills.groups, index, toIndex); }, { title: "Order Updated", message: `${skill.title} was moved. Undo is available.` })} />
+                <DragHandle />
                 <button onClick={() => openEditor(skill, index)} className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-(--text)" aria-label="Edit skill group"><Edit3 size={17} /></button>
                 <button onClick={() => updateContent((draft) => { draft.trash.items.unshift(createTrashItem("skill", skill.title, skill)); draft.skills.groups.splice(index, 1); }, { title: "Moved To Trash", message: `${skill.title} was deleted. Undo is available.` })} className="grid h-10 w-10 place-items-center rounded-2xl bg-red-100 text-red-700" aria-label="Delete skill group"><Trash2 size={17} /></button>
               </div>
@@ -1428,6 +1528,7 @@ function ProjectsManager({ content, updateContent }: { content: PortfolioContent
   const [editingIndex, setEditingIndex] = useState<number | "new" | null>(null);
   const [draftProject, setDraftProject] = useState<ProjectItem | null>(null);
   const [newCategory, setNewCategory] = useState("");
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   const projectCategories = Array.from(new Set([...(content.projects.categories || []), ...content.projects.items.map((project) => project.category)]));
 
@@ -1502,7 +1603,19 @@ function ProjectsManager({ content, updateContent }: { content: PortfolioContent
 
       <div className="grid gap-4 lg:grid-cols-2">
         {content.projects.items.map((project, index) => (
-          <article key={`${project.id}-${index}`} className="overflow-hidden rounded-3xl border border-(--border) bg-(--bg-primary)">
+          <article
+            key={`${project.id}-${index}`}
+            draggable
+            onDragStart={() => setDraggingIndex(index)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggingIndex === null) return;
+              updateContent((draft) => { moveArrayItem(draft.projects.items, draggingIndex, index); }, { title: "Order Updated", message: `${project.title} was moved. Undo is available.` });
+              setDraggingIndex(null);
+            }}
+            onDragEnd={() => setDraggingIndex(null)}
+            className={`overflow-hidden rounded-3xl border border-(--border) bg-(--bg-primary) transition ${draggingIndex === index ? "opacity-60 ring-2 ring-[#101828]" : ""}`}
+          >
             {project.image && <img src={project.image} alt={project.title} className="h-44 w-full object-cover" />}
             <div className="p-4">
               <div className="flex items-start justify-between gap-3">
@@ -1513,7 +1626,7 @@ function ProjectsManager({ content, updateContent }: { content: PortfolioContent
                 </div>
                 <div className="flex items-center gap-2">
                   {project.featured && <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Hero</span>}
-                  <OrderButtons index={index} total={content.projects.items.length} onMove={(toIndex) => updateContent((draft) => { moveArrayItem(draft.projects.items, index, toIndex); }, { title: "Order Updated", message: `${project.title} was moved. Undo is available.` })} />
+                  <DragHandle />
                   <button onClick={() => openProjectEditor(project, index)} className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-(--text)" aria-label="Edit project"><Edit3 size={17} /></button>
                   <button onClick={() => updateContent((draft) => { draft.trash.items.unshift(createTrashItem("project", project.title, project)); draft.projects.items.splice(index, 1); }, { title: "Moved To Trash", message: `${project.title} was deleted. Undo is available.` })} className="grid h-10 w-10 place-items-center rounded-2xl bg-red-100 text-red-700" aria-label="Delete project"><Trash2 size={17} /></button>
                 </div>
@@ -1796,6 +1909,7 @@ function ServicesManager({ content, updateContent }: { content: PortfolioContent
   const { showToast } = useToast();
   const [editingIndex, setEditingIndex] = useState<number | "new" | null>(null);
   const [draftService, setDraftService] = useState<ServiceItem | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   const openEditor = (service: ServiceItem, index: number | "new") => {
     setEditingIndex(index);
@@ -1822,7 +1936,19 @@ function ServicesManager({ content, updateContent }: { content: PortfolioContent
       </button>
       <div className="grid gap-4 lg:grid-cols-2">
         {content.services.items.map((service, index) => (
-          <article key={`${service.title}-${index}`} className="rounded-3xl border border-(--border) bg-(--bg-primary) p-4">
+          <article
+            key={`${service.title}-${index}`}
+            draggable
+            onDragStart={() => setDraggingIndex(index)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (draggingIndex === null) return;
+              updateContent((draft) => { moveArrayItem(draft.services.items, draggingIndex, index); }, { title: "Order Updated", message: `${service.title} was moved. Undo is available.` });
+              setDraggingIndex(null);
+            }}
+            onDragEnd={() => setDraggingIndex(null)}
+            className={`rounded-3xl border border-(--border) bg-(--bg-primary) p-4 transition ${draggingIndex === index ? "opacity-60 ring-2 ring-[#101828]" : ""}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-(--text-secondary)">{service.icon}</p>
@@ -1830,7 +1956,7 @@ function ServicesManager({ content, updateContent }: { content: PortfolioContent
                 <p className="mt-2 line-clamp-3 text-sm font-semibold text-(--text-secondary)">{service.desc}</p>
               </div>
               <div className="flex items-center gap-2">
-                <OrderButtons index={index} total={content.services.items.length} onMove={(toIndex) => updateContent((draft) => { moveArrayItem(draft.services.items, index, toIndex); }, { title: "Order Updated", message: `${service.title} was moved. Undo is available.` })} />
+                <DragHandle />
                 <button onClick={() => openEditor(service, index)} className="grid h-10 w-10 place-items-center rounded-2xl bg-white text-(--text)" aria-label="Edit service"><Edit3 size={17} /></button>
                 <button onClick={() => updateContent((draft) => { draft.trash.items.unshift(createTrashItem("service", service.title, service)); draft.services.items.splice(index, 1); }, { title: "Moved To Trash", message: `${service.title} was deleted. Undo is available.` })} className="grid h-10 w-10 place-items-center rounded-2xl bg-red-100 text-red-700" aria-label="Delete service"><Trash2 size={17} /></button>
               </div>
@@ -1918,7 +2044,7 @@ function ResumeManager({ content, updateContent }: { content: PortfolioContent; 
           }}
         />
         <RestoreDefaultButton label="Restore Default Resume" onRestore={() => { updateContent((draft) => { draft.resume = structuredClone(defaultPortfolioContent.resume); }); showToast("Resume Restored", "Default resume settings were restored in CMS draft.", "success"); }} />
-        <a href={content.resume.viewUrl || content.resume.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
+        <a href={content.resume.viewUrl || content.resume.url} target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
           <Eye size={17} />
           Preview Resume
         </a>
@@ -2711,6 +2837,14 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
   const [adminLocation, setAdminLocation] = useState<AdminGeoLocation | null>(null);
   const [mapFocus, setMapFocus] = useState<"target" | "admin" | "distance">("target");
   const [draft, setDraft] = useState({ customName: "", hostname: "", flag: "monitor", notes: "" });
+  const [visitorLogView, setVisitorLogView] = useState<"public" | "admin">("public");
+  const adminLoginLogs = useMemo(() => {
+    const words = ["login", "admin", "otp", "password", "unlock", "logout", "route"];
+    return summary.recentSecurityLogs.filter((log) => {
+      const haystack = `${log.eventType} ${log.reason} ${log.path}`.toLowerCase();
+      return words.some((word) => haystack.includes(word));
+    });
+  }, [summary.recentSecurityLogs]);
 
   const loadVisitors = useCallback(async () => {
     setIsLoading(true);
@@ -2958,6 +3092,29 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
         <VisitorMetric label="High Risk" value={visitors.filter((visitor) => visitor.threatScore >= 70).length} detail="Threat score 70+" icon={<ShieldAlert size={18} />} />
       </div>
 
+      <div className="rounded-3xl border border-white/80 bg-white p-2 shadow-sm">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            onClick={() => setVisitorLogView("public")}
+            className={`rounded-2xl px-4 py-3 text-left transition ${visitorLogView === "public" ? "bg-[#101828] text-white" : "bg-(--bg-primary) text-(--text)"}`}
+          >
+            <span className="block text-sm font-black">Public Portfolio Logs</span>
+            <span className={`mt-1 block text-xs font-semibold ${visitorLogView === "public" ? "text-white/75" : "text-(--text-secondary)"}`}>Visitors, location, map, devices, projects, and resume actions</span>
+          </button>
+          <button
+            onClick={() => setVisitorLogView("admin")}
+            className={`rounded-2xl px-4 py-3 text-left transition ${visitorLogView === "admin" ? "bg-[#101828] text-white" : "bg-(--bg-primary) text-(--text)"}`}
+          >
+            <span className="block text-sm font-black">Admin Login Details</span>
+            <span className={`mt-1 block text-xs font-semibold ${visitorLogView === "admin" ? "text-white/75" : "text-(--text-secondary)"}`}>Login attempts, protected admin route hits, IP, browser, and sessions</span>
+          </button>
+        </div>
+      </div>
+
+      {visitorLogView === "admin" ? (
+        <AdminLoginDetailsView logs={adminLoginLogs} sessions={summary.recentAdminSessions} />
+      ) : (
+        <>
       <div className="rounded-3xl border border-white/80 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -3179,7 +3336,97 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
           onClose={() => setLocationPickerOpen(false)}
         />
       )}
+        </>
+      )}
     </section>
+  );
+}
+
+function AdminLoginDetailsView({ logs, sessions }: { logs: AdminSummary["recentSecurityLogs"]; sessions: AdminSummary["recentAdminSessions"] }) {
+  const failedAttempts = logs.filter((log) => {
+    const text = `${log.eventType} ${log.reason}`.toLowerCase();
+    return text.includes("failed") || text.includes("invalid") || text.includes("denied") || text.includes("blocked");
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <VisitorMetric label="Login Logs" value={logs.length} detail="Admin access audit trail" icon={<KeyRound size={18} />} />
+        <VisitorMetric label="Failed Attempts" value={failedAttempts.length} detail="Denied, invalid, or blocked" icon={<ShieldAlert size={18} />} />
+        <VisitorMetric label="Admin Sessions" value={sessions.length} detail="Recent browser sessions" icon={<Laptop size={18} />} />
+      </div>
+
+      <div className="rounded-3xl border border-white/80 bg-white shadow-sm">
+        <div className="border-b border-(--border) p-5">
+          <h2 className="text-xl font-black text-(--text)">Admin Login Details</h2>
+          <p className="mt-1 text-sm text-(--text-secondary)">Every admin login, logout, OTP/password flow, and protected panel attempt is shown with IP and browser data.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+            <thead className="bg-(--bg-primary) text-xs font-black uppercase tracking-wide text-(--text-secondary)">
+              <tr>
+                <th className="px-5 py-4">Event</th>
+                <th className="px-5 py-4">Who / IP</th>
+                <th className="px-5 py-4">Route</th>
+                <th className="px-5 py-4">Browser Data</th>
+                <th className="px-5 py-4">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-8 text-center text-(--text-secondary)">No admin login details recorded yet.</td>
+                </tr>
+              )}
+              {logs.map((log) => (
+                <tr key={log.id} className="border-t border-(--border) bg-white align-top transition hover:bg-(--bg-primary)">
+                  <td className="px-5 py-4">
+                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase ${log.eventType.includes("denied") || log.eventType.includes("failed") ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{log.eventType}</span>
+                    <p className="mt-2 max-w-72 text-sm font-semibold text-(--text)">{log.reason}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <p className="font-black text-(--text)">Admin panel visitor</p>
+                    <p className="mt-1 text-xs font-semibold text-(--text-secondary)">IP {log.ip || "Unknown"}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <p className="max-w-56 break-words font-semibold text-(--text-secondary)">{log.path || "/admin"}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <p className="max-w-80 break-words text-xs font-semibold text-(--text-secondary)">{log.userAgent || "Unknown browser"}</p>
+                  </td>
+                  <td className="px-5 py-4">
+                    <p className="font-bold text-(--text)">{formatDate(log.createdAt)}</p>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-white/80 bg-white p-5 shadow-sm">
+        <h2 className="text-xl font-black text-(--text)">Admin Session History</h2>
+        <div className="mt-4 grid gap-3">
+          {sessions.length === 0 ? (
+            <p className="rounded-2xl bg-(--bg-primary) p-4 text-sm font-semibold text-(--text-secondary)">No admin sessions recorded yet.</p>
+          ) : sessions.map((session) => (
+            <article key={session.id} className="grid gap-3 rounded-2xl border border-(--border) bg-(--bg-primary) p-4 lg:grid-cols-[1fr_1fr_auto]">
+              <div>
+                <p className="text-sm font-black text-(--text)">IP {session.ip || "Unknown"}</p>
+                <p className="mt-1 break-words text-xs font-semibold text-(--text-secondary)">{session.userAgent || "Unknown browser"}</p>
+              </div>
+              <div className="text-xs font-semibold text-(--text-secondary)">
+                <p>Started {formatDate(session.createdAt)}</p>
+                <p>Expires {formatDate(session.expiresAt)}</p>
+              </div>
+              <span className={`h-fit rounded-full px-3 py-1 text-xs font-black uppercase ${session.revokedAt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                {session.revokedAt ? "Revoked" : "Active"}
+              </span>
+            </article>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
