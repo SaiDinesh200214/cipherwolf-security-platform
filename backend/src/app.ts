@@ -18,6 +18,7 @@ interface AdminUserRow {
   username: string;
   password_hash: string;
   administrative_pin_hash: string | null;
+  administrative_pin_enabled: boolean;
   email: string | null;
   whatsapp: string | null;
   role: string;
@@ -239,6 +240,10 @@ const adminPinVerifySchema = z.object({
   otp: z.string().regex(/^\d{6}$/, "OTP must be 6 digits."),
   pin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits."),
   confirmPin: z.string().regex(/^\d{6}$/, "Confirm PIN must be 6 digits."),
+});
+
+const adminPinStatusSchema = z.object({
+  enabled: z.boolean(),
 });
 
 const administrativePinSchema = z.object({
@@ -567,6 +572,7 @@ async function ensureContactColumns() {
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0");
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ");
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_hash TEXT");
+  await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_enabled BOOLEAN NOT NULL DEFAULT true");
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_changed_at TIMESTAMPTZ");
   await query("ALTER TABLE contact_messages ADD COLUMN IF NOT EXISTS subject VARCHAR(240)");
   await query("ALTER TABLE contact_messages ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(120)");
@@ -615,7 +621,7 @@ async function getCurrentAdmin(request: FastifyRequest) {
   const payload = getAdminPayload(request);
   if (!payload?.sub) return null;
   return queryOne<AdminUserRow>(
-    `SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until
+    `SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until
      FROM admin_users
      WHERE id = $1`,
     [payload.sub]
@@ -632,6 +638,7 @@ async function verifyAdministrativePin(request: FastifyRequest, reply: FastifyRe
     reply.code(403).send({ message: "Set your 6-digit Administrative PIN in Profile before making protected changes." });
     return false;
   }
+  if (!user.administrative_pin_enabled) return true;
   if (!pin) {
     reply.code(403).send({ message: "Administrative PIN required." });
     return false;
@@ -1256,6 +1263,8 @@ export async function createApp() {
   await app.register(cors, {
     origin: config.frontendOrigin === "*" ? true : config.frontendOrigins,
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
   });
   await app.register(rateLimit, {
     max: 120,
@@ -1292,7 +1301,7 @@ export async function createApp() {
     await ensureBootstrapAdmin(config.adminUsername, config.adminPassword);
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1349,7 +1358,7 @@ export async function createApp() {
     }
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
       [challenge.admin_user_id]
     );
 
@@ -1386,7 +1395,7 @@ export async function createApp() {
     await ensureBootstrapAdmin(config.adminUsername, config.adminPassword);
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1414,7 +1423,7 @@ export async function createApp() {
     if (await blockBadIp(request, reply, "account_unlock")) return;
     const body = unlockAccountSchema.parse(request.body);
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1492,6 +1501,7 @@ export async function createApp() {
         email: user.email || "",
         whatsapp: user.whatsapp || "",
         administrativePinConfigured: Boolean(user.administrative_pin_hash),
+        administrativePinEnabled: user.administrative_pin_enabled,
       },
     };
   });
@@ -1503,13 +1513,13 @@ export async function createApp() {
       return;
     }
     const body = adminProfileUpdateSchema.parse(request.body);
-    const row = await queryOne<{ username: string; email: string | null; whatsapp: string | null; administrativePinConfigured: boolean }>(
+    const row = await queryOne<{ username: string; email: string | null; whatsapp: string | null; administrativePinConfigured: boolean; administrativePinEnabled: boolean }>(
       `UPDATE admin_users
        SET email = $2,
            whatsapp = $3,
            updated_at = now()
        WHERE id = $1
-       RETURNING username, email, whatsapp, administrative_pin_hash IS NOT NULL AS "administrativePinConfigured"`,
+       RETURNING username, email, whatsapp, administrative_pin_hash IS NOT NULL AS "administrativePinConfigured", administrative_pin_enabled AS "administrativePinEnabled"`,
       [user.id, normalizeOptionalProfileValue(body.email), normalizeOptionalProfileValue(body.whatsapp)]
     );
     await logAdminSecurityEvent(request, "admin_profile_updated", "Admin profile contact details updated.");
@@ -1550,13 +1560,62 @@ export async function createApp() {
     await query(
       `UPDATE admin_users
        SET administrative_pin_hash = $2,
+           administrative_pin_enabled = true,
            administrative_pin_changed_at = now(),
            updated_at = now()
        WHERE id = $1`,
       [user.id, await bcrypt.hash(body.pin, 12)]
     );
     await logAdminSecurityEvent(request, "administrative_pin_changed", "Administrative PIN changed after OTP verification.");
-    return { message: "Administrative PIN updated.", administrativePinConfigured: true };
+    return { message: "Administrative PIN updated.", administrativePinConfigured: true, administrativePinEnabled: true };
+  });
+
+  app.patch("/api/admin/administrative-pin/status", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    const body = adminPinStatusSchema.parse(request.body);
+    if (body.enabled && !user.administrative_pin_hash) {
+      reply.code(400).send({ message: "Set a 6-digit Administrative PIN before turning it on." });
+      return;
+    }
+    const row = await queryOne<{ administrativePinConfigured: boolean; administrativePinEnabled: boolean }>(
+      `UPDATE admin_users
+       SET administrative_pin_enabled = $2,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING administrative_pin_hash IS NOT NULL AS "administrativePinConfigured", administrative_pin_enabled AS "administrativePinEnabled"`,
+      [user.id, body.enabled]
+    );
+    await logAdminSecurityEvent(request, body.enabled ? "administrative_pin_enabled" : "administrative_pin_disabled", body.enabled ? "Administrative PIN protection turned on." : "Administrative PIN protection turned off.");
+    return { message: body.enabled ? "Administrative PIN protection is on." : "Administrative PIN protection is off.", ...row };
+  });
+
+  app.post("/api/admin/app-lock/lock", { preHandler: requireAdmin }, async (request) => {
+    await logAdminSecurityEvent(request, "admin_app_locked", "Admin screen locked after inactivity or manual lock.");
+    return { message: "Admin screen locked." };
+  });
+
+  app.post("/api/admin/app-lock/unlock", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    const body = administrativePinSchema.parse(request.body);
+    if (!user.administrative_pin_hash) {
+      reply.code(403).send({ message: "Set your 6-digit Administrative PIN before using App Lock." });
+      return;
+    }
+    if (!(await bcrypt.compare(body.administrativePin, user.administrative_pin_hash))) {
+      await logAdminSecurityEvent(request, "admin_app_unlock_failed", "Invalid Administrative PIN for App Lock.");
+      reply.code(403).send({ message: "Invalid Administrative PIN." });
+      return;
+    }
+    await logAdminSecurityEvent(request, "admin_app_unlocked", "Admin screen unlocked with Administrative PIN.");
+    return { message: "Admin screen unlocked." };
   });
 
   app.post("/api/auth/refresh", async (request, reply) => {
@@ -1577,7 +1636,7 @@ export async function createApp() {
     }
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, administrative_pin_enabled, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
       [session.admin_user_id]
     );
     if (!user) {

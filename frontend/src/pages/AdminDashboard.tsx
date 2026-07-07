@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Activity, AlertTriangle, Bell, Bot, Box, Bug, Check, ChevronDown, ChevronUp, Clock3, Code2, Database, Download, Edit3, Eye, FileDown, FileText, Flame, Gamepad2, Gauge, Globe, Globe2, GripVertical, HelpCircle, Image, Images, KeyRound, Laptop, LayoutDashboard, Lock, LogOut, Mail, MapPin, MessageCircle, Monitor, MousePointerClick, Navigation, Network, Palette, Pin, Plus, Radar, RefreshCw, Route, Router, Save, Search, SearchCheck, Server, ServerCog, Shield, ShieldAlert, ShieldCheck, ShieldHalf, SlidersHorizontal, Smartphone, Tablet, Trash2, Undo2, Upload, UserRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -107,6 +107,7 @@ interface AdminProfile {
   email: string;
   whatsapp: string;
   administrativePinConfigured: boolean;
+  administrativePinEnabled: boolean;
 }
 
 interface RealtimeMessage {
@@ -195,6 +196,13 @@ interface PinPromptRequest {
   onConfirm: (pin: string) => void;
 }
 
+interface AppLockSettings {
+  enabled: boolean;
+  timeoutMinutes: number;
+}
+
+const APP_LOCK_SETTINGS_KEY = "cipherwolf_app_lock_settings";
+
 const emptySummary: AdminSummary = {
   totals: {
     contacts: 0,
@@ -276,6 +284,7 @@ export default function AdminDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { showToast, updateToast } = useToast();
+  const appLock = useAdminAppLock();
 
   const loadSummary = useCallback(async () => {
     const data = await apiRequest<AdminSummary>("/admin/summary", { auth: true });
@@ -522,9 +531,12 @@ export default function AdminDashboard() {
 	                  Search
 	                  <span className="rounded-lg bg-(--bg-primary) px-2 py-1 text-[10px] font-black text-(--text-secondary)">K</span>
 	                </button>
-	                <button onClick={() => setNotificationsOpen((open) => !open)} className="relative grid h-11 w-11 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Open notifications">
+                <button onClick={() => setNotificationsOpen((open) => !open)} className="relative grid h-11 w-11 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Open notifications">
                   <Bell size={18} />
                   {unreadNotificationCount > 0 && <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />}
+                </button>
+                <button onClick={appLock.lockNow} className="grid h-11 w-11 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Lock admin app" title="Lock admin app">
+                  <Lock size={17} />
                 </button>
                 <button onClick={handleLogout} className="hidden h-11 items-center gap-2 rounded-2xl border border-(--border) bg-white px-4 text-sm font-semibold text-(--text) sm:flex">
                   <LogOut size={17} />
@@ -557,10 +569,11 @@ export default function AdminDashboard() {
             {activeSection === "contacts" && <ContactsView refreshKey={refreshKey} />}
             {activeSection === "soc" && <SocView summary={currentSummary} />}
             {activeSection === "reports" && <ReportsView summary={currentSummary} />}
-            {activeSection === "profile" && <ProfileView summary={currentSummary} />}
+            {activeSection === "profile" && <ProfileView summary={currentSummary} appLockSettings={appLock.settings} onAppLockSettingsChange={appLock.setSettings} onLockNow={appLock.lockNow} />}
           </div>
         </section>
       </div>
+      {appLock.modal}
     </main>
   );
 }
@@ -1296,6 +1309,116 @@ function useAdministrativePinPrompt() {
   ) : null;
 
   return { requestAdministrativePin, administrativePinModal };
+}
+
+function readAppLockSettings(): AppLockSettings {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_LOCK_SETTINGS_KEY) || "{}") as Partial<AppLockSettings>;
+    return {
+      enabled: Boolean(parsed.enabled),
+      timeoutMinutes: typeof parsed.timeoutMinutes === "number" && parsed.timeoutMinutes > 0 ? parsed.timeoutMinutes : 15,
+    };
+  } catch {
+    return { enabled: false, timeoutMinutes: 15 };
+  }
+}
+
+function useAdminAppLock() {
+  const { showToast, updateToast } = useToast();
+  const [settings, setSettingsState] = useState<AppLockSettings>(() => readAppLockSettings());
+  const [locked, setLocked] = useState(false);
+  const [pin, setPin] = useState("");
+  const lockedRef = useRef(false);
+
+  useEffect(() => {
+    lockedRef.current = locked;
+  }, [locked]);
+
+  const setSettings = useCallback((nextSettings: AppLockSettings) => {
+    const normalized = {
+      enabled: nextSettings.enabled,
+      timeoutMinutes: Math.max(1, Math.min(240, Math.round(nextSettings.timeoutMinutes || 15))),
+    };
+    localStorage.setItem(APP_LOCK_SETTINGS_KEY, JSON.stringify(normalized));
+    setSettingsState(normalized);
+  }, []);
+
+  const lockNow = useCallback(() => {
+    if (!settings.enabled) {
+      showToast("App Lock Off", "Turn on App Lock in Profile before locking the admin panel.", "error");
+      return;
+    }
+    if (lockedRef.current) return;
+    lockedRef.current = true;
+    setLocked(true);
+    setPin("");
+    void apiRequest("/admin/app-lock/lock", { method: "POST", auth: true }).catch(() => undefined);
+  }, [settings.enabled, showToast]);
+
+  useEffect(() => {
+    if (!settings.enabled || locked) return undefined;
+    let timer = window.setTimeout(lockNow, settings.timeoutMinutes * 60 * 1000);
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(lockNow, settings.timeoutMinutes * 60 * 1000);
+    };
+    const events = ["click", "keydown", "mousemove", "pointerdown", "scroll", "touchstart"];
+    events.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach((eventName) => window.removeEventListener(eventName, resetTimer));
+    };
+  }, [lockNow, locked, settings.enabled, settings.timeoutMinutes]);
+
+  const unlock = async () => {
+    if (pin.length !== 6) {
+      showToast("PIN Required", "Enter your 6-digit Administrative PIN.", "error");
+      return;
+    }
+    const toastId = showToast("Unlocking", "Checking Administrative PIN...", "loading");
+    try {
+      await apiRequest("/admin/app-lock/unlock", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ administrativePin: pin }),
+      });
+      setLocked(false);
+      lockedRef.current = false;
+      setPin("");
+      updateToast(toastId, "Unlocked", "Admin panel is ready.", "success");
+    } catch (err) {
+      updateToast(toastId, "Unlock Failed", err instanceof Error ? err.message : "Could not unlock.", "error");
+    }
+  };
+
+  const modal = locked ? (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-[#0b1220]/90 p-4 backdrop-blur-xl">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white p-6 text-center shadow-2xl">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#101828] text-white">
+          <Lock size={22} />
+        </div>
+        <h2 className="mt-4 text-2xl font-black text-(--text)">Admin App Locked</h2>
+        <p className="mt-2 text-sm font-semibold text-(--text-secondary)">Enter your Administrative PIN to continue.</p>
+        <input
+          autoFocus
+          inputMode="numeric"
+          type="password"
+          value={pin}
+          onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") void unlock();
+          }}
+          className="mt-5 w-full rounded-2xl border border-(--border) bg-(--bg-primary) px-4 py-4 text-center text-xl font-black tracking-[0.35em] text-(--text) outline-none focus:border-[#101828]"
+          placeholder="000000"
+        />
+        <button onClick={() => void unlock()} className="mt-4 w-full rounded-2xl bg-[#101828] px-5 py-3 text-sm font-black text-white">
+          Unlock
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  return { settings, setSettings, lockNow, modal };
 }
 
 function ListEditor({ label, values, onChange }: { label: string; values: string[]; onChange: (values: string[]) => void }) {
@@ -4801,14 +4924,27 @@ function SecurityCheck({ icon, label, status, warning = false }: { icon: ReactNo
   );
 }
 
-function ProfileView({ summary }: { summary: AdminSummary }) {
+function ProfileView({
+  summary,
+  appLockSettings,
+  onAppLockSettingsChange,
+  onLockNow,
+}: {
+  summary: AdminSummary;
+  appLockSettings: AppLockSettings;
+  onAppLockSettingsChange: (settings: AppLockSettings) => void;
+  onLockNow: () => void;
+}) {
   const [avatarPreview, setAvatarPreview] = useState("/avatar.webp");
   const { showToast, updateToast } = useToast();
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [profileDraft, setProfileDraft] = useState({ email: "", whatsapp: "" });
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [pinEditing, setPinEditing] = useState(false);
   const [pinChannel, setPinChannel] = useState<"email" | "whatsapp">("email");
   const [pinChallenge, setPinChallenge] = useState<{ challengeId: string; destination: string } | null>(null);
   const [pinForm, setPinForm] = useState({ pin: "", confirmPin: "", otp: "" });
+  const [customLockTimeout, setCustomLockTimeout] = useState(String(appLockSettings.timeoutMinutes));
 
   useEffect(() => {
     apiRequest<{ profile: AdminProfile }>("/admin/profile", { auth: true })
@@ -4818,6 +4954,10 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
       })
       .catch((err) => showToast("Profile Load Failed", err instanceof Error ? err.message : "Could not load profile.", "error"));
   }, [showToast]);
+
+  useEffect(() => {
+    setCustomLockTimeout(String(appLockSettings.timeoutMinutes));
+  }, [appLockSettings.timeoutMinutes]);
 
   const saveProfile = async () => {
     const toastId = showToast("Saving Profile", "Updating admin contact details...", "loading");
@@ -4829,9 +4969,40 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
       });
       setProfile(data.profile);
       setProfileDraft({ email: data.profile.email || "", whatsapp: data.profile.whatsapp || "" });
+      setProfileEditing(false);
       updateToast(toastId, "Profile Saved", "Admin email and WhatsApp are updated.", "success");
     } catch (err) {
       updateToast(toastId, "Save Failed", err instanceof Error ? err.message : "Could not save profile.", "error");
+    }
+  };
+
+  const cancelProfileEdit = () => {
+    setProfileDraft({ email: profile?.email || "", whatsapp: profile?.whatsapp || "" });
+    setProfileEditing(false);
+  };
+
+  const cancelPinEdit = () => {
+    setPinForm({ pin: "", confirmPin: "", otp: "" });
+    setPinChallenge(null);
+    setPinEditing(false);
+  };
+
+  const toggleAdministrativePin = async (enabled: boolean) => {
+    if (enabled && !profile?.administrativePinConfigured) {
+      showToast("PIN Not Set", "Create your 6-digit Administrative PIN before turning protection on.", "error");
+      return;
+    }
+    const toastId = showToast(enabled ? "Turning PIN On" : "Turning PIN Off", "Updating Administrative PIN protection...", "loading");
+    try {
+      const data = await apiRequest<{ administrativePinConfigured: boolean; administrativePinEnabled: boolean }>("/admin/administrative-pin/status", {
+        method: "PATCH",
+        auth: true,
+        body: JSON.stringify({ enabled }),
+      });
+      setProfile((current) => current ? { ...current, administrativePinConfigured: data.administrativePinConfigured, administrativePinEnabled: data.administrativePinEnabled } : current);
+      updateToast(toastId, enabled ? "PIN Protection On" : "PIN Protection Off", enabled ? "Protected actions will ask for your PIN." : "Protected actions will not ask for your PIN.", "success");
+    } catch (err) {
+      updateToast(toastId, "PIN Toggle Failed", err instanceof Error ? err.message : "Could not update PIN protection.", "error");
     }
   };
 
@@ -4874,13 +5045,23 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
         auth: true,
         body: JSON.stringify({ ...pinForm, challengeId: pinChallenge.challengeId }),
       });
-      setProfile((current) => current ? { ...current, administrativePinConfigured: true } : current);
+      setProfile((current) => current ? { ...current, administrativePinConfigured: true, administrativePinEnabled: true } : current);
       setPinForm({ pin: "", confirmPin: "", otp: "" });
       setPinChallenge(null);
+      setPinEditing(false);
       updateToast(toastId, "PIN Updated", "Administrative PIN is now active.", "success");
     } catch (err) {
       updateToast(toastId, "PIN Failed", err instanceof Error ? err.message : "Could not update PIN.", "error");
     }
+  };
+
+  const updateAppLock = (settings: AppLockSettings) => {
+    if (settings.enabled && !profile?.administrativePinConfigured) {
+      showToast("PIN Needed", "Create your Administrative PIN before enabling App Lock.", "error");
+      return;
+    }
+    onAppLockSettingsChange(settings);
+    showToast("App Lock Updated", settings.enabled ? `Admin will lock after ${settings.timeoutMinutes} minutes idle.` : "Admin App Lock is off.", "success");
   };
 
   const logoutAllDevices = async () => {
@@ -4922,42 +5103,134 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
 
       <div className="space-y-6">
         <Panel title="Personal Details" empty="">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-(--text)">Account details</p>
+              <p className="mt-1 text-xs font-semibold text-(--text-secondary)">{profileEditing ? "Editing is enabled" : "Tap edit to change contact details"}</p>
+            </div>
+            {profileEditing ? (
+              <div className="flex gap-2">
+                <button onClick={cancelProfileEdit} className="grid h-10 w-10 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Cancel profile edit" title="Cancel">
+                  <X size={16} />
+                </button>
+                <button onClick={() => void saveProfile()} className="grid h-10 w-10 place-items-center rounded-2xl bg-[#101828] text-white" aria-label="Save profile" title="Save">
+                  <Save size={16} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setProfileEditing(true)} className="grid h-10 w-10 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Edit profile" title="Edit profile">
+                <Edit3 size={16} />
+              </button>
+            )}
+          </div>
           <ProfileField label="Username" placeholder={profile?.username || "Admin"} value={profile?.username || ""} />
-          <ProfileField label="Email" placeholder="admin@cipherwolf.dev" value={profileDraft.email} onChange={(value) => setProfileDraft({ ...profileDraft, email: value })} />
-          <ProfileField label="WhatsApp" placeholder="+91 00000 00000" value={profileDraft.whatsapp} onChange={(value) => setProfileDraft({ ...profileDraft, whatsapp: value })} />
+          <ProfileField label="Email" placeholder="admin@cipherwolf.dev" value={profileDraft.email} onChange={profileEditing ? (value) => setProfileDraft({ ...profileDraft, email: value }) : undefined} />
+          <ProfileField label="WhatsApp" placeholder="+91 00000 00000" value={profileDraft.whatsapp} onChange={profileEditing ? (value) => setProfileDraft({ ...profileDraft, whatsapp: value }) : undefined} />
           <p className="text-xs font-semibold text-(--text-secondary)">Use full country code for WhatsApp, for example +91XXXXXXXXXX.</p>
-          <button onClick={() => void saveProfile()} className="rounded-2xl bg-[#101828] px-5 py-3 text-sm font-bold text-white">Save profile</button>
         </Panel>
         <Panel title="Administrative PIN" empty="">
           <div className="rounded-2xl bg-(--bg-primary) p-4">
-            <p className="text-sm font-black text-(--text)">{profile?.administrativePinConfigured ? "PIN is active" : "PIN is not set"}</p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-black text-(--text)">{profile?.administrativePinConfigured ? (profile.administrativePinEnabled ? "PIN protection is on" : "PIN protection is off") : "PIN is not set"}</p>
+                <p className="mt-1 text-xs font-semibold text-(--text-secondary)">Use the switch to pause or resume PIN checks for protected changes.</p>
+              </div>
+              <button
+                onClick={() => void toggleAdministrativePin(!profile?.administrativePinEnabled)}
+                className={`relative h-8 w-14 rounded-full transition ${profile?.administrativePinEnabled ? "bg-[#101828]" : "bg-slate-300"}`}
+                aria-label="Toggle Administrative PIN protection"
+                title={profile?.administrativePinEnabled ? "Turn PIN protection off" : "Turn PIN protection on"}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${profile?.administrativePinEnabled ? "left-7" : "left-1"}`} />
+              </button>
+            </div>
             <p className="mt-1 text-xs font-semibold text-(--text-secondary)">This 6-digit PIN is required for edit, modification, publish, and delete actions.</p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ProfileField label="New 6-digit PIN" placeholder="000000" type="password" value={pinForm.pin} onChange={(value) => setPinForm({ ...pinForm, pin: value.replace(/\D/g, "").slice(0, 6) })} />
-            <ProfileField label="Confirm PIN" placeholder="000000" type="password" value={pinForm.confirmPin} onChange={(value) => setPinForm({ ...pinForm, confirmPin: value.replace(/\D/g, "").slice(0, 6) })} />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-black text-(--text)">Change Administrative PIN</p>
+              <p className="mt-1 text-xs font-semibold text-(--text-secondary)">{pinEditing ? "Enter a new PIN and verify OTP" : "Tap edit when you want to change it"}</p>
+            </div>
+            {pinEditing ? (
+              <button onClick={cancelPinEdit} className="grid h-10 w-10 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Cancel PIN edit" title="Cancel">
+                <X size={16} />
+              </button>
+            ) : (
+              <button onClick={() => setPinEditing(true)} className="grid h-10 w-10 place-items-center rounded-2xl border border-(--border) bg-white text-(--text)" aria-label="Edit Administrative PIN" title="Edit PIN">
+                <Edit3 size={16} />
+              </button>
+            )}
+          </div>
+          {pinEditing && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ProfileField label="New 6-digit PIN" placeholder="000000" type="password" value={pinForm.pin} onChange={(value) => setPinForm({ ...pinForm, pin: value.replace(/\D/g, "").slice(0, 6) })} />
+                <ProfileField label="Confirm PIN" placeholder="000000" type="password" value={pinForm.confirmPin} onChange={(value) => setPinForm({ ...pinForm, confirmPin: value.replace(/\D/g, "").slice(0, 6) })} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["email", "whatsapp"] as const).map((channel) => (
+                  <button
+                    key={channel}
+                    onClick={() => setPinChannel(channel)}
+                    className={`rounded-2xl px-4 py-2 text-xs font-black capitalize ${pinChannel === channel ? "bg-[#101828] text-white" : "border border-(--border) bg-white text-(--text)"}`}
+                  >
+                    OTP by {channel}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => void requestPinOtp()} className="rounded-2xl border border-(--border) bg-white px-5 py-3 text-sm font-bold text-(--text)">Send OTP</button>
+              {pinChallenge && (
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-xs font-bold text-emerald-700">OTP sent to {pinChallenge.destination}</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <ProfileField label="OTP" placeholder="6-digit OTP" type="password" value={pinForm.otp} onChange={(value) => setPinForm({ ...pinForm, otp: value.replace(/\D/g, "").slice(0, 6) })} />
+                    <button onClick={() => void verifyPinOtp()} className="self-end rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white">Save PIN</button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </Panel>
+        <Panel title="App Lock" empty="">
+          <div className="rounded-2xl bg-(--bg-primary) p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-black text-(--text)">{appLockSettings.enabled ? "App Lock is on" : "App Lock is off"}</p>
+                <p className="mt-1 text-xs font-semibold text-(--text-secondary)">Locks the admin panel after no mouse, keyboard, scroll, or touch activity.</p>
+              </div>
+              <button
+                onClick={() => updateAppLock({ ...appLockSettings, enabled: !appLockSettings.enabled })}
+                className={`relative h-8 w-14 rounded-full transition ${appLockSettings.enabled ? "bg-[#101828]" : "bg-slate-300"}`}
+                aria-label="Toggle App Lock"
+                title={appLockSettings.enabled ? "Turn App Lock off" : "Turn App Lock on"}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${appLockSettings.enabled ? "left-7" : "left-1"}`} />
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["email", "whatsapp"] as const).map((channel) => (
+            {[15, 20, 30, 45].map((minutes) => (
               <button
-                key={channel}
-                onClick={() => setPinChannel(channel)}
-                className={`rounded-2xl px-4 py-2 text-xs font-black capitalize ${pinChannel === channel ? "bg-[#101828] text-white" : "border border-(--border) bg-white text-(--text)"}`}
+                key={minutes}
+                onClick={() => updateAppLock({ enabled: true, timeoutMinutes: minutes })}
+                className={`rounded-2xl px-4 py-2 text-xs font-black ${appLockSettings.enabled && appLockSettings.timeoutMinutes === minutes ? "bg-[#101828] text-white" : "border border-(--border) bg-white text-(--text)"}`}
               >
-                OTP by {channel}
+                {minutes} min
               </button>
             ))}
           </div>
-          <button onClick={() => void requestPinOtp()} className="rounded-2xl border border-(--border) bg-white px-5 py-3 text-sm font-bold text-(--text)">Send OTP</button>
-          {pinChallenge && (
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-              <p className="text-xs font-bold text-emerald-700">OTP sent to {pinChallenge.destination}</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
-                <ProfileField label="OTP" placeholder="6-digit OTP" type="password" value={pinForm.otp} onChange={(value) => setPinForm({ ...pinForm, otp: value.replace(/\D/g, "").slice(0, 6) })} />
-                <button onClick={() => void verifyPinOtp()} className="self-end rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white">Save PIN</button>
-              </div>
-            </div>
-          )}
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            <ProfileField label="Custom minutes" placeholder="60" type="number" value={customLockTimeout} onChange={setCustomLockTimeout} />
+            <button
+              onClick={() => updateAppLock({ enabled: true, timeoutMinutes: Number(customLockTimeout) || 15 })}
+              className="self-end rounded-2xl border border-(--border) bg-white px-5 py-3 text-sm font-bold text-(--text)"
+            >
+              Set
+            </button>
+            <button onClick={onLockNow} className="self-end rounded-2xl bg-[#101828] px-5 py-3 text-sm font-bold text-white">
+              Lock now
+            </button>
+          </div>
         </Panel>
         <Panel title="Login History" empty={summary.recentSecurityLogs.length === 0 ? "No login activity recorded yet." : ""}>
           {summary.recentSecurityLogs
