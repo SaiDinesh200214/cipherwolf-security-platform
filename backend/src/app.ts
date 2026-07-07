@@ -17,6 +17,7 @@ interface AdminUserRow {
   id: string;
   username: string;
   password_hash: string;
+  administrative_pin_hash: string | null;
   email: string | null;
   whatsapp: string | null;
   role: string;
@@ -224,6 +225,26 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(10).max(200),
 });
 
+const adminProfileUpdateSchema = z.object({
+  email: z.string().trim().email().max(180).optional().or(z.literal("")),
+  whatsapp: z.string().trim().min(8).max(40).optional().or(z.literal("")),
+});
+
+const adminPinRequestSchema = z.object({
+  channel: z.enum(["email", "whatsapp"]),
+});
+
+const adminPinVerifySchema = z.object({
+  challengeId: z.string().uuid(),
+  otp: z.string().regex(/^\d{6}$/, "OTP must be 6 digits."),
+  pin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits."),
+  confirmPin: z.string().regex(/^\d{6}$/, "Confirm PIN must be 6 digits."),
+});
+
+const administrativePinSchema = z.object({
+  administrativePin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits."),
+});
+
 const contactSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(180),
@@ -237,6 +258,7 @@ const contactSchema = z.object({
 const contactUpdateSchema = z.object({
   status: z.enum(["new", "read", "archived"]).optional(),
   pinned: z.boolean().optional(),
+  administrativePin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits.").optional(),
 });
 
 const analyticsSchema = z.object({
@@ -280,6 +302,7 @@ const visitorNoteSchema = z.object({
   hostname: z.string().trim().max(160).optional(),
   flag: z.enum(["important", "watchlist", "safe", "monitor", "suspicious", "blocked"]).optional(),
   notes: z.string().trim().max(3000).optional(),
+  administrativePin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits.").optional(),
 });
 
 const visitorDeleteSchema = z.object({
@@ -312,6 +335,7 @@ const adminRouteAttemptSchema = z.object({
 
 const cmsContentSchema = z.object({
   content: z.record(z.string(), z.unknown()),
+  administrativePin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits.").optional(),
 });
 
 const cmsBackupSchema = z.object({
@@ -525,7 +549,7 @@ async function ensureBootstrapAdmin(username: string, password: string) {
 async function createAdminOtpChallenge(
   user: AdminUserRow,
   channel: OtpChannel,
-  purpose: "login" | "password_reset" | "account_unlock",
+  purpose: "login" | "password_reset" | "account_unlock" | "administrative_pin",
   request: FastifyRequest,
   reply: FastifyReply,
   logger: FastifyInstance["log"]
@@ -542,6 +566,8 @@ async function createAdminOtpChallenge(
 async function ensureContactColumns() {
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0");
   await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ");
+  await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_hash TEXT");
+  await query("ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_changed_at TIMESTAMPTZ");
   await query("ALTER TABLE contact_messages ADD COLUMN IF NOT EXISTS subject VARCHAR(240)");
   await query("ALTER TABLE contact_messages ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(120)");
   await query("ALTER TABLE contact_messages ADD COLUMN IF NOT EXISTS metadata JSONB");
@@ -575,6 +601,52 @@ async function ensureContactColumns() {
   )`);
   await query("CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_admin_user_id ON auth_refresh_tokens (admin_user_id)");
   await query("CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_expires_at ON auth_refresh_tokens (expires_at)");
+}
+
+function getAdminPayload(request: FastifyRequest) {
+  return request.user as { sub?: string; username?: string; role?: string } | undefined;
+}
+
+function normalizeOptionalProfileValue(value?: string) {
+  return value?.trim() ? value.trim() : null;
+}
+
+async function getCurrentAdmin(request: FastifyRequest) {
+  const payload = getAdminPayload(request);
+  if (!payload?.sub) return null;
+  return queryOne<AdminUserRow>(
+    `SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until
+     FROM admin_users
+     WHERE id = $1`,
+    [payload.sub]
+  );
+}
+
+async function verifyAdministrativePin(request: FastifyRequest, reply: FastifyReply, pin: string | undefined, action: string) {
+  const user = await getCurrentAdmin(request);
+  if (!user) {
+    reply.code(401).send({ message: "Unauthorized." });
+    return false;
+  }
+  if (!user.administrative_pin_hash) {
+    reply.code(403).send({ message: "Set your 6-digit Administrative PIN in Profile before making protected changes." });
+    return false;
+  }
+  if (!pin) {
+    reply.code(403).send({ message: "Administrative PIN required." });
+    return false;
+  }
+  if (!(await bcrypt.compare(pin, user.administrative_pin_hash))) {
+    await logAdminSecurityEvent(request, "administrative_pin_failed", `Invalid Administrative PIN for ${action}.`);
+    reply.code(403).send({ message: "Invalid Administrative PIN." });
+    return false;
+  }
+  return true;
+}
+
+function getAdministrativePinFromBody(request: FastifyRequest) {
+  const parsed = administrativePinSchema.safeParse(request.body || {});
+  return parsed.success ? parsed.data.administrativePin : undefined;
 }
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
@@ -1220,7 +1292,7 @@ export async function createApp() {
     await ensureBootstrapAdmin(config.adminUsername, config.adminPassword);
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1277,7 +1349,7 @@ export async function createApp() {
     }
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
       [challenge.admin_user_id]
     );
 
@@ -1314,7 +1386,7 @@ export async function createApp() {
     await ensureBootstrapAdmin(config.adminUsername, config.adminPassword);
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1342,7 +1414,7 @@ export async function createApp() {
     if (await blockBadIp(request, reply, "account_unlock")) return;
     const body = unlockAccountSchema.parse(request.body);
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE username = $1",
       [body.username]
     );
 
@@ -1408,6 +1480,85 @@ export async function createApp() {
     return { user: request.user };
   });
 
+  app.get("/api/admin/profile", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    return {
+      profile: {
+        username: user.username,
+        email: user.email || "",
+        whatsapp: user.whatsapp || "",
+        administrativePinConfigured: Boolean(user.administrative_pin_hash),
+      },
+    };
+  });
+
+  app.patch("/api/admin/profile", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    const body = adminProfileUpdateSchema.parse(request.body);
+    const row = await queryOne<{ username: string; email: string | null; whatsapp: string | null; administrativePinConfigured: boolean }>(
+      `UPDATE admin_users
+       SET email = $2,
+           whatsapp = $3,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING username, email, whatsapp, administrative_pin_hash IS NOT NULL AS "administrativePinConfigured"`,
+      [user.id, normalizeOptionalProfileValue(body.email), normalizeOptionalProfileValue(body.whatsapp)]
+    );
+    await logAdminSecurityEvent(request, "admin_profile_updated", "Admin profile contact details updated.");
+    return { profile: row };
+  });
+
+  app.post("/api/admin/administrative-pin/request-otp", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    const body = adminPinRequestSchema.parse(request.body);
+    const challenge = await createAdminOtpChallenge(user, body.channel, "administrative_pin", request, reply, app.log);
+    if (!challenge) return;
+    return {
+      message: `Administrative PIN OTP sent to ${challenge.destination}. It expires in 5 minutes.`,
+      ...challenge,
+    };
+  });
+
+  app.post("/api/admin/administrative-pin/verify", { preHandler: requireAdmin }, async (request, reply) => {
+    const user = await getCurrentAdmin(request);
+    if (!user) {
+      reply.code(401).send({ message: "Unauthorized." });
+      return;
+    }
+    const body = adminPinVerifySchema.parse(request.body);
+    if (body.pin !== body.confirmPin) {
+      reply.code(400).send({ message: "PIN and confirm PIN must match." });
+      return;
+    }
+    const challenge = await verifyOtpChallenge(body.challengeId, body.otp, "administrative_pin");
+    if (!challenge || challenge.admin_user_id !== user.id) {
+      reply.code(401).send({ message: "Invalid or expired OTP." });
+      return;
+    }
+    await query(
+      `UPDATE admin_users
+       SET administrative_pin_hash = $2,
+           administrative_pin_changed_at = now(),
+           updated_at = now()
+       WHERE id = $1`,
+      [user.id, await bcrypt.hash(body.pin, 12)]
+    );
+    await logAdminSecurityEvent(request, "administrative_pin_changed", "Administrative PIN changed after OTP verification.");
+    return { message: "Administrative PIN updated.", administrativePinConfigured: true };
+  });
+
   app.post("/api/auth/refresh", async (request, reply) => {
     if (await blockBadIp(request, reply, "refresh")) return;
     const refreshToken = getRefreshCookie(request);
@@ -1426,7 +1577,7 @@ export async function createApp() {
     }
 
     const user = await queryOne<AdminUserRow>(
-      "SELECT id, username, password_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
+      "SELECT id, username, password_hash, administrative_pin_hash, email, whatsapp, role, token_version, failed_login_attempts, locked_until FROM admin_users WHERE id = $1",
       [session.admin_user_id]
     );
     if (!user) {
@@ -1496,9 +1647,10 @@ export async function createApp() {
     };
   });
 
-  app.put("/api/admin/cms", { preHandler: requireAdmin }, async (request) => {
+  app.put("/api/admin/cms", { preHandler: requireAdmin }, async (request, reply) => {
     await ensureContactColumns();
     const body = cmsContentSchema.parse(request.body);
+    if (!(await verifyAdministrativePin(request, reply, body.administrativePin, "cms_publish"))) return;
     const sanitizedContent = sanitizeJson(body.content);
     const previous = await queryOne<{ content: unknown }>("SELECT content FROM cms_content WHERE key = 'portfolio' LIMIT 1");
     if (previous?.content) {
@@ -1551,6 +1703,7 @@ export async function createApp() {
   app.post("/api/admin/cms/backups/:id/restore", { preHandler: requireAdmin }, async (request, reply) => {
     await ensureContactColumns();
     const params = z.object({ id: z.string().trim().min(1).max(120) }).parse(request.params);
+    if (!(await verifyAdministrativePin(request, reply, getAdministrativePinFromBody(request), "cms_backup_restore"))) return;
     const backup = await queryOne<{ content: unknown }>("SELECT content FROM cms_backups WHERE id::text = $1", [params.id]);
     if (!backup) {
       reply.code(404).send({ message: "CMS backup not found." });
@@ -1799,6 +1952,7 @@ export async function createApp() {
   app.patch("/api/admin/contacts/:id", { preHandler: requireAdmin }, async (request, reply) => {
     const params = z.object({ id: z.string().trim().min(1).max(120) }).parse(request.params);
     const body = contactUpdateSchema.parse(request.body);
+    if (!(await verifyAdministrativePin(request, reply, body.administrativePin, "contact_update"))) return;
     const contact = await queryOne<ContactMessageRow>(
       `UPDATE contact_messages
        SET status = COALESCE($2, status),
@@ -1817,6 +1971,7 @@ export async function createApp() {
 
   app.delete("/api/admin/contacts/:id", { preHandler: requireAdmin }, async (request, reply) => {
     const params = z.object({ id: z.string().trim().min(1).max(120) }).parse(request.params);
+    if (!(await verifyAdministrativePin(request, reply, getAdministrativePinFromBody(request), "contact_delete"))) return;
     const contact = await queryOne(
       "UPDATE contact_messages SET status = 'archived', pinned = false, updated_at = now() WHERE id::text = $1 RETURNING id",
       [params.id]
@@ -1830,9 +1985,10 @@ export async function createApp() {
     reply.send({ message: "Contact archived." });
   });
 
-  app.patch("/api/admin/visitors/:visitorKey/notes", { preHandler: requireAdmin }, async (request) => {
+  app.patch("/api/admin/visitors/:visitorKey/notes", { preHandler: requireAdmin }, async (request, reply) => {
     const params = z.object({ visitorKey: z.string().trim().min(1).max(180) }).parse(request.params);
     const parsedBody = visitorNoteSchema.parse(request.body);
+    if (!(await verifyAdministrativePin(request, reply, parsedBody.administrativePin, "visitor_update"))) return;
     const body = {
       customName: parsedBody.customName ? sanitizeText(parsedBody.customName) : undefined,
       hostname: parsedBody.hostname ? sanitizeText(parsedBody.hostname) : undefined,
@@ -1859,6 +2015,7 @@ export async function createApp() {
     const queryParams = visitorDeleteSchema.parse(request.query);
     const visitorKey = params.visitorKey;
     await ensureContactColumns();
+    if (!(await verifyAdministrativePin(request, reply, getAdministrativePinFromBody(request), "visitor_delete"))) return;
 
     if (queryParams.mode === "permanent") {
       const deletedEvents = await queryOne<{ count: string }>(
@@ -1902,6 +2059,7 @@ export async function createApp() {
     const params = z.object({ eventId: z.string().trim().min(1).max(120) }).parse(request.params);
     const queryParams = visitorDeleteSchema.parse(request.query);
     await ensureContactColumns();
+    if (!(await verifyAdministrativePin(request, reply, getAdministrativePinFromBody(request), "visitor_event_delete"))) return;
 
     if (queryParams.mode === "permanent") {
       const deleted = await queryOne<{ id: string }>("DELETE FROM analytics_events WHERE id::text = $1 RETURNING id", [params.eventId]);

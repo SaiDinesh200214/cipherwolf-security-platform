@@ -5,7 +5,7 @@ import { sendOtp } from "./delivery.js";
 import { query, queryOne } from "./db.js";
 
 export type OtpChannel = "email" | "whatsapp";
-export type OtpPurpose = "login" | "password_reset" | "account_unlock";
+export type OtpPurpose = "login" | "password_reset" | "account_unlock" | "administrative_pin";
 
 interface OtpRow {
   id: string;
@@ -81,6 +81,9 @@ export async function createOtpChallenge(
   });
 
   if (!delivered) {
+    if (channel === "whatsapp") {
+      throw new Error("WhatsApp OTP was not delivered. Check Twilio WhatsApp credentials and the admin WhatsApp number in profile/settings.");
+    }
     logger.warn({
       otp: code,
       purpose,

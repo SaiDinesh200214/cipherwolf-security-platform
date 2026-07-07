@@ -29,7 +29,14 @@ interface SendContactNotificationInput {
 function purposeLabel(purpose: OtpPurpose): string {
   if (purpose === "password_reset") return "password reset";
   if (purpose === "account_unlock") return "account unlock";
+  if (purpose === "administrative_pin") return "administrative PIN change";
   return "admin login";
+}
+
+function normalizeWhatsappNumber(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("+")) return `+${trimmed.slice(1).replace(/\D/g, "")}`;
+  return `+${trimmed.replace(/\D/g, "")}`;
 }
 
 function detectDevice(userAgent: string): string {
@@ -175,7 +182,7 @@ async function sendTwilioWhatsappOtp(input: SendOtpInput) {
     },
     body: new URLSearchParams({
       From: `whatsapp:${config.twilioWhatsappFrom}`,
-      To: `whatsapp:${input.destination}`,
+      To: `whatsapp:${normalizeWhatsappNumber(input.destination)}`,
       Body: otpText(input),
     }),
   });

@@ -102,6 +102,13 @@ interface ContactMessage {
   updatedAt: string;
 }
 
+interface AdminProfile {
+  username: string;
+  email: string;
+  whatsapp: string;
+  administrativePinConfigured: boolean;
+}
+
 interface RealtimeMessage {
   type: string;
   payload: unknown;
@@ -179,6 +186,13 @@ interface AdminGeoLocation {
   latitude: number;
   longitude: number;
   accuracy: number | null;
+}
+
+interface PinPromptRequest {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: (pin: string) => void;
 }
 
 const emptySummary: AdminSummary = {
@@ -896,6 +910,7 @@ function OrderButtons({ index, total, onMove }: { index: number; total: number; 
 
 function CmsView() {
   const { showToast, updateToast } = useToast();
+  const { requestAdministrativePin, administrativePinModal } = useAdministrativePinPrompt();
   const [activeManager, setActiveManager] = useState<CmsManager>("hero");
   const [content, setContent] = useState<PortfolioContent>(defaultPortfolioContent);
   const [publishedContent, setPublishedContent] = useState<PortfolioContent | null>(null);
@@ -953,17 +968,13 @@ function CmsView() {
     }
   };
 
-  const saveContent = async () => {
-    if (validationIssues.length > 0) {
-      showToast("Validation Failed", `Fix ${validationIssues.length} CMS issue${validationIssues.length === 1 ? "" : "s"} before publishing.`, "error");
-      return;
-    }
+  const publishContent = async (administrativePin: string) => {
     const toastId = showToast("Saving CMS", "Publishing portfolio changes...", "loading");
     try {
       const data = await apiRequest<{ updatedAt: string }>("/admin/cms", {
         method: "PUT",
         auth: true,
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, administrativePin }),
       });
       setUpdatedAt(data.updatedAt);
       setPublishedContent(content);
@@ -977,6 +988,19 @@ function CmsView() {
     } catch (error) {
       updateToast(toastId, "Save Failed", error instanceof Error ? error.message : "Could not save CMS content.", "error");
     }
+  };
+
+  const saveContent = () => {
+    if (validationIssues.length > 0) {
+      showToast("Validation Failed", `Fix ${validationIssues.length} CMS issue${validationIssues.length === 1 ? "" : "s"} before publishing.`, "error");
+      return;
+    }
+    requestAdministrativePin({
+      title: "Publish CMS Changes",
+      message: "Enter your Administrative PIN to publish these public portfolio changes.",
+      confirmLabel: "Publish",
+      onConfirm: (pin) => void publishContent(pin),
+    });
   };
 
   const previewDraft = () => {
@@ -1086,6 +1110,7 @@ function CmsView() {
           {activeManager === "backups" && <BackupManager content={content} setContent={setContent} setUpdatedAt={setUpdatedAt} />}
         </div>
       </section>
+      {administrativePinModal}
     </div>
   );
 }
@@ -1212,6 +1237,65 @@ function DragHandle() {
       <GripVertical size={18} />
     </span>
   );
+}
+
+function useAdministrativePinPrompt() {
+  const { showToast } = useToast();
+  const [request, setRequest] = useState<PinPromptRequest | null>(null);
+  const [pin, setPin] = useState("");
+
+  const requestAdministrativePin = (nextRequest: PinPromptRequest) => {
+    setPin("");
+    setRequest(nextRequest);
+  };
+
+  const administrativePinModal = request ? (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl border border-(--border) bg-white p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-(--text-secondary)">Administrative Permission</p>
+            <h3 className="mt-1 text-xl font-black text-(--text)">{request.title}</h3>
+            <p className="mt-2 text-sm font-semibold text-(--text-secondary)">{request.message}</p>
+          </div>
+          <button onClick={() => setRequest(null)} className="grid h-10 w-10 place-items-center rounded-2xl bg-(--bg-primary)" aria-label="Cancel PIN entry">
+            <X size={18} />
+          </button>
+        </div>
+        <label className="mt-5 block">
+          <span className="text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">6-digit PIN</span>
+          <input
+            autoFocus
+            inputMode="numeric"
+            type="password"
+            value={pin}
+            onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            className="mt-2 w-full rounded-2xl border border-(--border) bg-(--bg-primary) px-4 py-3 text-center text-xl font-black tracking-[0.35em] text-(--text) outline-none focus:border-[#101828]"
+            placeholder="000000"
+          />
+        </label>
+        <div className="mt-5 flex justify-end gap-3">
+          <button onClick={() => setRequest(null)} className="rounded-2xl border border-(--border) bg-white px-5 py-3 text-sm font-black text-(--text)">Cancel</button>
+          <button
+            onClick={() => {
+              if (pin.length !== 6) {
+                showToast("PIN Required", "Enter your 6-digit Administrative PIN.", "error");
+                return;
+              }
+              request.onConfirm(pin);
+              setRequest(null);
+              setPin("");
+            }}
+            className="rounded-2xl bg-[#101828] px-5 py-3 text-sm font-black text-white"
+          >
+            {request.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return { requestAdministrativePin, administrativePinModal };
 }
 
 function ListEditor({ label, values, onChange }: { label: string; values: string[]; onChange: (values: string[]) => void }) {
@@ -2236,6 +2320,7 @@ interface CmsBackup {
 
 function BackupManager({ content, setContent, setUpdatedAt }: { content: PortfolioContent; setContent: (content: PortfolioContent) => void; setUpdatedAt: (value: string | null) => void }) {
   const { showToast, updateToast } = useToast();
+  const { requestAdministrativePin, administrativePinModal } = useAdministrativePinPrompt();
   const [backups, setBackups] = useState<CmsBackup[]>([]);
   const [label, setLabel] = useState(`Manual backup - ${new Date().toLocaleString()}`);
 
@@ -2263,12 +2348,13 @@ function BackupManager({ content, setContent, setUpdatedAt }: { content: Portfol
     }
   };
 
-  const restoreBackup = async (id: string) => {
+  const restoreBackup = async (id: string, administrativePin: string) => {
     const toastId = showToast("Restoring Backup", "Replacing CMS content with this snapshot...", "loading");
     try {
       const data = await apiRequest<{ content: PortfolioContent; updatedAt: string }>("/admin/cms/backups/" + encodeURIComponent(id) + "/restore", {
         method: "POST",
         auth: true,
+        body: JSON.stringify({ administrativePin }),
       });
       const nextContent = mergeCmsContent(data.content);
       setContent(nextContent);
@@ -2346,7 +2432,7 @@ function BackupManager({ content, setContent, setUpdatedAt }: { content: Portfol
                 <p className="font-black text-(--text)">{backup.label}</p>
                 <p className="mt-1 text-xs font-semibold text-(--text-secondary)">{backup.source} / {formatDate(backup.createdAt)}{backup.restoredAt ? ` / restored ${formatDate(backup.restoredAt)}` : ""}</p>
               </div>
-              <button onClick={() => void restoreBackup(backup.id)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-(--border) bg-(--bg-primary) px-4 py-3 text-sm font-black text-(--text)">
+              <button onClick={() => requestAdministrativePin({ title: "Restore CMS Backup", message: "Enter your Administrative PIN to replace the current CMS draft with this backup.", confirmLabel: "Restore", onConfirm: (pin) => void restoreBackup(backup.id, pin) })} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-(--border) bg-(--bg-primary) px-4 py-3 text-sm font-black text-(--text)">
                 <Undo2 size={17} />
                 Restore
               </button>
@@ -2354,6 +2440,7 @@ function BackupManager({ content, setContent, setUpdatedAt }: { content: Portfol
           ))}
         </div>
       </div>
+      {administrativePinModal}
     </div>
   );
 }
@@ -2821,6 +2908,7 @@ function formatUptime(seconds: number) {
 function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshKey: number }) {
   const location = useLocation();
   const { showToast, updateToast } = useToast();
+  const { requestAdministrativePin, administrativePinModal } = useAdministrativePinPrompt();
   const [visitors, setVisitors] = useState<VisitorProfile[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [query, setQuery] = useState("");
@@ -2909,14 +2997,14 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     setSelectedKey("");
   }, [visitorBin]);
 
-  const saveVisitorNotes = async () => {
+  const saveVisitorNotes = async (administrativePin: string) => {
     if (!selectedVisitor) return;
     const toastId = showToast("Saving Visitor", "Updating visitor notes and flag...", "loading");
     try {
       await apiRequest(`/admin/visitors/${encodeURIComponent(selectedVisitor.visitorKey)}/notes`, {
         method: "PATCH",
         auth: true,
-        body: JSON.stringify(draft),
+        body: JSON.stringify({ ...draft, administrativePin }),
       });
       await loadVisitors();
       updateToast(toastId, "Saved Successfully", "Visitor profile was updated.", "success");
@@ -2925,7 +3013,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     }
   };
 
-  const pinVisitor = async (visitor: VisitorProfile) => {
+  const pinVisitor = async (visitor: VisitorProfile, administrativePin: string) => {
     const toastId = showToast("Pinning Visitor", "Marking this visitor as important...", "loading");
     try {
       await apiRequest(`/admin/visitors/${encodeURIComponent(visitor.visitorKey)}/notes`, {
@@ -2936,6 +3024,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
           hostname: visitor.hostname || "",
           flag: "important",
           notes: visitor.notes || "",
+          administrativePin,
         }),
       });
       await loadVisitors();
@@ -2956,7 +3045,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     }
   };
 
-  const deleteVisitor = async (visitor: VisitorProfile, mode: "trash" | "permanent") => {
+  const deleteVisitor = async (visitor: VisitorProfile, mode: "trash" | "permanent", administrativePin: string) => {
     const label = visitor.customName || visitor.hostname || visitor.ip || visitor.visitorKey;
     const message = mode === "permanent" ? `Permanently delete all database events for ${label}.` : `Move ${label} to visitor trash.`;
 
@@ -2969,6 +3058,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
             await apiRequest(`/admin/visitors/${encodeURIComponent(visitor.visitorKey)}?mode=${mode}`, {
               method: "DELETE",
               auth: true,
+              body: JSON.stringify({ administrativePin }),
             });
             await loadVisitors();
             updateToast(toastId, mode === "permanent" ? "Permanently Deleted" : "Moved To Trash", mode === "permanent" ? "Visitor records were removed from the database." : "Visitor records are now in trash.", "success");
@@ -2981,7 +3071,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     });
   };
 
-  const deleteVisitorEvent = async (eventId: string) => {
+  const deleteVisitorEvent = async (eventId: string, administrativePin: string) => {
     showToast("Confirm Delete", "Move this single visit or action to trash.", "loading", {
       label: "Confirm",
       onClick: () => {
@@ -2991,6 +3081,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
             await apiRequest(`/admin/visitor-events/${encodeURIComponent(eventId)}?mode=trash`, {
               method: "DELETE",
               auth: true,
+              body: JSON.stringify({ administrativePin }),
             });
             await loadVisitors();
             updateToast(toastId, "Visit Deleted", "This visit/action was moved to trash.", "success");
@@ -3271,11 +3362,25 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
                         <Eye size={14} />
                         View More
                       </button>
-                      <button onClick={() => void pinVisitor(visitor)} className="grid h-9 w-9 place-items-center rounded-xl border border-(--border) bg-white text-(--text)" title="Pin visitor as important">
+                      <button
+                        onClick={() => requestAdministrativePin({
+                          title: "Pin Visitor",
+                          message: "Enter your Administrative PIN to mark this visitor as important.",
+                          confirmLabel: "Pin",
+                          onConfirm: (pin) => void pinVisitor(visitor, pin),
+                        })}
+                        className="grid h-9 w-9 place-items-center rounded-xl border border-(--border) bg-white text-(--text)"
+                        title="Pin visitor as important"
+                      >
                         <Pin size={15} />
                       </button>
                       <button
-                        onClick={() => void deleteVisitor(visitor, visitorBin === "trash" ? "permanent" : "trash")}
+                        onClick={() => requestAdministrativePin({
+                          title: visitorBin === "trash" ? "Delete Visitor Forever" : "Move Visitor To Trash",
+                          message: visitorBin === "trash" ? "Enter your Administrative PIN to permanently delete this visitor data." : "Enter your Administrative PIN to move this visitor data to trash.",
+                          confirmLabel: visitorBin === "trash" ? "Delete Forever" : "Move To Trash",
+                          onConfirm: (pin) => void deleteVisitor(visitor, visitorBin === "trash" ? "permanent" : "trash", pin),
+                        })}
                         className="grid h-9 w-9 place-items-center rounded-xl border border-red-100 bg-red-50 text-red-700"
                         title={visitorBin === "trash" ? "Permanently delete visitor" : "Move visitor to trash"}
                       >
@@ -3309,8 +3414,24 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
           visitor={manualTrackedVisitor || selectedVisitor}
           draft={draft}
           setDraft={setDraft}
-          onSave={saveVisitorNotes}
-          onDeleteEvent={deleteVisitorEvent}
+          onSave={() => {
+            requestAdministrativePin({
+              title: "Save Visitor Changes",
+              message: "Enter your Administrative PIN to update this visitor profile.",
+              confirmLabel: "Save",
+              onConfirm: (pin) => void saveVisitorNotes(pin),
+            });
+            return Promise.resolve();
+          }}
+          onDeleteEvent={(eventId) => {
+            requestAdministrativePin({
+              title: "Delete Visit Event",
+              message: "Enter your Administrative PIN to move this visit or action to trash.",
+              confirmLabel: "Delete",
+              onConfirm: (pin) => void deleteVisitorEvent(eventId, pin),
+            });
+            return Promise.resolve();
+          }}
           onCancel={() => {
             setDraft({
               customName: selectedVisitor.customName || "",
@@ -3338,6 +3459,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
       )}
         </>
       )}
+      {administrativePinModal}
     </section>
   );
 }
@@ -3446,6 +3568,7 @@ function VisitorMetric({ label, value, detail, icon }: { label: string; value: n
 function ContactsView({ refreshKey }: { refreshKey: number }) {
   const navigate = useNavigate();
   const { showToast, updateToast } = useToast();
+  const { requestAdministrativePin, administrativePinModal } = useAdministrativePinPrompt();
   const [contacts, setContacts] = useState<ContactMessage[]>([]);
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -3471,13 +3594,13 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
     return contacts.filter((contact) => [contact.name, contact.email, contact.subject, contact.message, contact.ip, contact.visitorId].join(" ").toLowerCase().includes(normalized));
   }, [contacts, query]);
 
-  const updateContact = async (contact: ContactMessage, body: { status?: "new" | "read" | "archived"; pinned?: boolean }) => {
+  const updateContact = async (contact: ContactMessage, body: { status?: "new" | "read" | "archived"; pinned?: boolean }, administrativePin: string) => {
     const toastId = showToast("Updating Contact", "Saving message status...", "loading");
     try {
       await apiRequest(`/admin/contacts/${contact.id}`, {
         method: "PATCH",
         auth: true,
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, administrativePin }),
       });
       await loadContacts();
       updateToast(toastId, "Saved Successfully", "Contact message updated.", "success");
@@ -3486,11 +3609,10 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
     }
   };
 
-  const deleteContact = async (contact: ContactMessage) => {
-    if (!window.confirm(`Delete message from ${contact.name}?`)) return;
+  const deleteContact = async (contact: ContactMessage, administrativePin: string) => {
     const toastId = showToast("Deleting Contact", "Removing the message...", "loading");
     try {
-      await apiRequest(`/admin/contacts/${contact.id}`, { method: "DELETE", auth: true });
+      await apiRequest(`/admin/contacts/${contact.id}`, { method: "DELETE", auth: true, body: JSON.stringify({ administrativePin }) });
       await loadContacts();
       updateToast(toastId, "Deleted Successfully", "Contact message removed.", "success");
     } catch (err) {
@@ -3543,10 +3665,10 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
                   {expandedId !== contact.id && <p className="mt-2 line-clamp-1 text-sm text-(--text-secondary)">Click to expand full message</p>}
                 </button>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <button onClick={() => void updateContact(contact, { status: contact.status === "new" ? "read" : "new" })} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-xs font-black text-(--text)">{contact.status === "new" ? "Mark read" : "Unread"}</button>
-                  <button onClick={() => void updateContact(contact, { pinned: !contact.pinned })} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-xs font-black text-(--text)">{contact.pinned ? "Unpin" : "Pin"}</button>
+                  <button onClick={() => requestAdministrativePin({ title: "Update Contact", message: "Enter your Administrative PIN to change this contact status.", confirmLabel: "Update", onConfirm: (pin) => void updateContact(contact, { status: contact.status === "new" ? "read" : "new" }, pin) })} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-xs font-black text-(--text)">{contact.status === "new" ? "Mark read" : "Unread"}</button>
+                  <button onClick={() => requestAdministrativePin({ title: "Pin Contact", message: "Enter your Administrative PIN to change this contact pin.", confirmLabel: contact.pinned ? "Unpin" : "Pin", onConfirm: (pin) => void updateContact(contact, { pinned: !contact.pinned }, pin) })} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-xs font-black text-(--text)">{contact.pinned ? "Unpin" : "Pin"}</button>
                   <button onClick={() => openVisitor(contact)} className="rounded-2xl bg-[#101828] px-4 py-2 text-xs font-black text-white">Visitor</button>
-                  <button onClick={() => void deleteContact(contact)} className="rounded-2xl bg-red-100 px-4 py-2 text-xs font-black text-red-700">Delete</button>
+                  <button onClick={() => requestAdministrativePin({ title: "Delete Contact", message: `Enter your Administrative PIN to delete the message from ${contact.name}.`, confirmLabel: "Delete", onConfirm: (pin) => void deleteContact(contact, pin) })} className="rounded-2xl bg-red-100 px-4 py-2 text-xs font-black text-red-700">Delete</button>
                 </div>
               </div>
               {expandedId === contact.id && (
@@ -3565,6 +3687,7 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
           ))}
         </div>
       </div>
+      {administrativePinModal}
     </section>
   );
 }
@@ -4681,6 +4804,84 @@ function SecurityCheck({ icon, label, status, warning = false }: { icon: ReactNo
 function ProfileView({ summary }: { summary: AdminSummary }) {
   const [avatarPreview, setAvatarPreview] = useState("/avatar.webp");
   const { showToast, updateToast } = useToast();
+  const [profile, setProfile] = useState<AdminProfile | null>(null);
+  const [profileDraft, setProfileDraft] = useState({ email: "", whatsapp: "" });
+  const [pinChannel, setPinChannel] = useState<"email" | "whatsapp">("email");
+  const [pinChallenge, setPinChallenge] = useState<{ challengeId: string; destination: string } | null>(null);
+  const [pinForm, setPinForm] = useState({ pin: "", confirmPin: "", otp: "" });
+
+  useEffect(() => {
+    apiRequest<{ profile: AdminProfile }>("/admin/profile", { auth: true })
+      .then((data) => {
+        setProfile(data.profile);
+        setProfileDraft({ email: data.profile.email || "", whatsapp: data.profile.whatsapp || "" });
+      })
+      .catch((err) => showToast("Profile Load Failed", err instanceof Error ? err.message : "Could not load profile.", "error"));
+  }, [showToast]);
+
+  const saveProfile = async () => {
+    const toastId = showToast("Saving Profile", "Updating admin contact details...", "loading");
+    try {
+      const data = await apiRequest<{ profile: AdminProfile }>("/admin/profile", {
+        method: "PATCH",
+        auth: true,
+        body: JSON.stringify(profileDraft),
+      });
+      setProfile(data.profile);
+      setProfileDraft({ email: data.profile.email || "", whatsapp: data.profile.whatsapp || "" });
+      updateToast(toastId, "Profile Saved", "Admin email and WhatsApp are updated.", "success");
+    } catch (err) {
+      updateToast(toastId, "Save Failed", err instanceof Error ? err.message : "Could not save profile.", "error");
+    }
+  };
+
+  const requestPinOtp = async () => {
+    if (pinForm.pin.length !== 6 || pinForm.confirmPin.length !== 6) {
+      showToast("PIN Required", "Enter and confirm a 6-digit Administrative PIN.", "error");
+      return;
+    }
+    if (pinForm.pin !== pinForm.confirmPin) {
+      showToast("PIN Mismatch", "PIN and confirm PIN must match.", "error");
+      return;
+    }
+    const toastId = showToast("Sending OTP", `Sending Administrative PIN OTP by ${pinChannel}...`, "loading");
+    try {
+      const data = await apiRequest<{ challengeId: string; destination: string }>("/admin/administrative-pin/request-otp", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ channel: pinChannel }),
+      });
+      setPinChallenge({ challengeId: data.challengeId, destination: data.destination });
+      updateToast(toastId, "OTP Sent", `OTP sent to ${data.destination}.`, "success");
+    } catch (err) {
+      updateToast(toastId, "OTP Failed", err instanceof Error ? err.message : "Could not send OTP.", "error");
+    }
+  };
+
+  const verifyPinOtp = async () => {
+    if (!pinChallenge) {
+      showToast("OTP Required", "Request an OTP before saving the Administrative PIN.", "error");
+      return;
+    }
+    if (pinForm.otp.length !== 6) {
+      showToast("OTP Required", "Enter the 6-digit OTP.", "error");
+      return;
+    }
+    const toastId = showToast("Updating PIN", "Verifying OTP and saving Administrative PIN...", "loading");
+    try {
+      await apiRequest("/admin/administrative-pin/verify", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ ...pinForm, challengeId: pinChallenge.challengeId }),
+      });
+      setProfile((current) => current ? { ...current, administrativePinConfigured: true } : current);
+      setPinForm({ pin: "", confirmPin: "", otp: "" });
+      setPinChallenge(null);
+      updateToast(toastId, "PIN Updated", "Administrative PIN is now active.", "success");
+    } catch (err) {
+      updateToast(toastId, "PIN Failed", err instanceof Error ? err.message : "Could not update PIN.", "error");
+    }
+  };
 
   const logoutAllDevices = async () => {
     const toastId = showToast("Ending Sessions", "Revoking admin sessions on every device...", "loading");
@@ -4721,16 +4922,42 @@ function ProfileView({ summary }: { summary: AdminSummary }) {
 
       <div className="space-y-6">
         <Panel title="Personal Details" empty="">
-          <ProfileField label="Display name" placeholder="CipherWolf Admin" />
-          <ProfileField label="Email" placeholder="admin@cipherwolf.dev" />
-          <ProfileField label="WhatsApp" placeholder="+91 00000 00000" />
-          <button className="rounded-2xl bg-[#101828] px-5 py-3 text-sm font-bold text-white">Save profile</button>
+          <ProfileField label="Username" placeholder={profile?.username || "Admin"} value={profile?.username || ""} />
+          <ProfileField label="Email" placeholder="admin@cipherwolf.dev" value={profileDraft.email} onChange={(value) => setProfileDraft({ ...profileDraft, email: value })} />
+          <ProfileField label="WhatsApp" placeholder="+91 00000 00000" value={profileDraft.whatsapp} onChange={(value) => setProfileDraft({ ...profileDraft, whatsapp: value })} />
+          <p className="text-xs font-semibold text-(--text-secondary)">Use full country code for WhatsApp, for example +91XXXXXXXXXX.</p>
+          <button onClick={() => void saveProfile()} className="rounded-2xl bg-[#101828] px-5 py-3 text-sm font-bold text-white">Save profile</button>
         </Panel>
-        <Panel title="Change Password" empty="">
-          <ProfileField label="Current password" placeholder="Enter current password" type="password" />
-          <ProfileField label="New password" placeholder="Minimum 10 characters" type="password" />
-          <ProfileField label="Confirm password" placeholder="Repeat new password" type="password" />
-          <button className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white">Update password</button>
+        <Panel title="Administrative PIN" empty="">
+          <div className="rounded-2xl bg-(--bg-primary) p-4">
+            <p className="text-sm font-black text-(--text)">{profile?.administrativePinConfigured ? "PIN is active" : "PIN is not set"}</p>
+            <p className="mt-1 text-xs font-semibold text-(--text-secondary)">This 6-digit PIN is required for edit, modification, publish, and delete actions.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ProfileField label="New 6-digit PIN" placeholder="000000" type="password" value={pinForm.pin} onChange={(value) => setPinForm({ ...pinForm, pin: value.replace(/\D/g, "").slice(0, 6) })} />
+            <ProfileField label="Confirm PIN" placeholder="000000" type="password" value={pinForm.confirmPin} onChange={(value) => setPinForm({ ...pinForm, confirmPin: value.replace(/\D/g, "").slice(0, 6) })} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(["email", "whatsapp"] as const).map((channel) => (
+              <button
+                key={channel}
+                onClick={() => setPinChannel(channel)}
+                className={`rounded-2xl px-4 py-2 text-xs font-black capitalize ${pinChannel === channel ? "bg-[#101828] text-white" : "border border-(--border) bg-white text-(--text)"}`}
+              >
+                OTP by {channel}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => void requestPinOtp()} className="rounded-2xl border border-(--border) bg-white px-5 py-3 text-sm font-bold text-(--text)">Send OTP</button>
+          {pinChallenge && (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <p className="text-xs font-bold text-emerald-700">OTP sent to {pinChallenge.destination}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+                <ProfileField label="OTP" placeholder="6-digit OTP" type="password" value={pinForm.otp} onChange={(value) => setPinForm({ ...pinForm, otp: value.replace(/\D/g, "").slice(0, 6) })} />
+                <button onClick={() => void verifyPinOtp()} className="self-end rounded-2xl bg-red-600 px-5 py-3 text-sm font-bold text-white">Save PIN</button>
+              </div>
+            </div>
+          )}
         </Panel>
         <Panel title="Login History" empty={summary.recentSecurityLogs.length === 0 ? "No login activity recorded yet." : ""}>
           {summary.recentSecurityLogs
@@ -4790,8 +5017,9 @@ function ProfileField({ label, placeholder, type = "text", value, onChange }: { 
         type={type}
         placeholder={placeholder}
         value={value}
+        readOnly={!onChange}
         onChange={(event) => onChange?.(event.target.value)}
-        className="mt-2 w-full rounded-2xl border border-(--border) bg-white px-4 py-3 text-(--text) outline-none transition focus:border-[#101828]"
+        className={`mt-2 w-full rounded-2xl border border-(--border) px-4 py-3 text-(--text) outline-none transition focus:border-[#101828] ${onChange ? "bg-white" : "bg-(--bg-primary)"}`}
       />
     </label>
   );

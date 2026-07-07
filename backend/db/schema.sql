@@ -20,6 +20,8 @@ ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL 
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_hash TEXT;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS administrative_pin_changed_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS auth_otps (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
