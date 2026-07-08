@@ -2452,7 +2452,7 @@ function IconGuide() {
 function TrashManager({ content, updateContent }: { content: PortfolioContent; updateContent: (updater: (draft: PortfolioContent) => void) => void }) {
   const { showToast } = useToast();
   const [selectedTrashIds, setSelectedTrashIds] = useState<string[]>([]);
-  const items = content.trash.items || [];
+  const items = useMemo(() => content.trash.items || [], [content.trash.items]);
   const selectedItems = items.filter((item) => selectedTrashIds.includes(item.id));
 
   useEffect(() => {

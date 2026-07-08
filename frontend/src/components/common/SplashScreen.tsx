@@ -22,6 +22,14 @@ function saveVisitorData(location: VisitorLocation | null, locationError?: strin
   trackVisitorEvent("continue_click", {}, location, locationError);
 }
 
+function saveConsentTimestamp() {
+  try {
+    localStorage.setItem("site_consent_timestamp", Date.now().toString());
+  } catch {
+    // Storage can be unavailable; still allow the visitor to enter.
+  }
+}
+
 function requestExactLocation(): Promise<VisitorLocation | null> {
   if (!("geolocation" in navigator)) {
     saveVisitorData(null, "Geolocation is not supported by this browser.");
@@ -87,20 +95,24 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
     return () => clearTimeout(t);
   }, [reduceMotion]);
 
-  const handleContinue = async () => {
+  const enterPortfolio = () => {
+    setPhase("exiting");
+    window.setTimeout(onComplete, reduceMotion ? 120 : 620);
+  };
+
+  const handleContinue = async (sharePreciseLocation = false) => {
     if (isCollecting || phase !== "ready") return;
     setIsCollecting(true);
 
-    try {
-      localStorage.setItem("site_consent_timestamp", Date.now().toString());
-    } catch {
-      // Storage can be unavailable; still allow the visitor to enter.
+    saveConsentTimestamp();
+
+    if (sharePreciseLocation) {
+      await requestExactLocation();
+    } else {
+      saveVisitorData(null, "Precise location not requested.");
     }
 
-    await requestExactLocation();
-
-    setPhase("exiting");
-    window.setTimeout(onComplete, reduceMotion ? 120 : 620);
+    enterPortfolio();
   };
 
   return (
@@ -198,17 +210,24 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
                   transition={{ duration: 0.45, ease: "easeOut" }}
                 >
                   <button
-                    onClick={handleContinue}
+                    onClick={() => void handleContinue(false)}
                     disabled={isCollecting}
                     className="eleken-cta min-w-40 px-8 py-3 text-sm sm:text-base shadow-xl"
                   >
                     {isCollecting ? "Entering..." : "Continue"}
                   </button>
+                  <button
+                    onClick={() => void handleContinue(true)}
+                    disabled={isCollecting}
+                    className="text-xs font-semibold text-(--text-secondary) underline-offset-4 transition hover:text-(--primary) hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Share precise location
+                  </button>
                   <p
                     className="max-w-xs text-[0.68rem] sm:text-xs leading-5"
                     style={{ color: "var(--text-secondary, #6b7280)" }}
                   >
-                    Continue requests visitor details and precise location before entering.
+                    Continue opens the portfolio without a location prompt. Precise location is optional.
                   </p>
                 </motion.div>
               )}

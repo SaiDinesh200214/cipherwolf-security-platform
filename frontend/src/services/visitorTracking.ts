@@ -37,6 +37,22 @@ let locationRequested = false;
 let currentClientNetwork: ClientNetwork | null = loadStoredClientNetwork();
 let clientNetworkRequest: Promise<ClientNetwork | null> | null = null;
 
+function readStorage(storage: Storage, key: string) {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(storage: Storage, key: string, value: string) {
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // Browser privacy settings can block storage. Tracking should degrade quietly.
+  }
+}
+
 function createId(prefix: string) {
   if ("crypto" in window && typeof window.crypto.randomUUID === "function") {
     return `${prefix}_${window.crypto.randomUUID()}`;
@@ -45,20 +61,20 @@ function createId(prefix: string) {
 }
 
 export function getVisitorId() {
-  let visitorId = localStorage.getItem(VISITOR_ID_KEY);
+  let visitorId = readStorage(localStorage, VISITOR_ID_KEY);
   if (!visitorId) {
     visitorId = createId("visitor");
-    localStorage.setItem(VISITOR_ID_KEY, visitorId);
+    writeStorage(localStorage, VISITOR_ID_KEY, visitorId);
   }
   return visitorId;
 }
 
 export function getSessionId() {
-  let sessionId = sessionStorage.getItem(SESSION_ID_KEY);
+  let sessionId = readStorage(sessionStorage, SESSION_ID_KEY);
   if (!sessionId) {
     sessionId = createId("session");
-    sessionStorage.setItem(SESSION_ID_KEY, sessionId);
-    sessionStorage.setItem(SESSION_STARTED_KEY, new Date().toISOString());
+    writeStorage(sessionStorage, SESSION_ID_KEY, sessionId);
+    writeStorage(sessionStorage, SESSION_STARTED_KEY, new Date().toISOString());
   }
   return sessionId;
 }
@@ -88,7 +104,7 @@ function detectDevice(userAgent: string) {
 
 function loadStoredClientNetwork(): ClientNetwork | null {
   try {
-    const cached = sessionStorage.getItem(CLIENT_NETWORK_KEY);
+    const cached = readStorage(sessionStorage, CLIENT_NETWORK_KEY);
     if (!cached) return null;
     const parsed = JSON.parse(cached) as ClientNetwork;
     if (!parsed.ip || !parsed.resolvedAt) return null;
@@ -134,7 +150,7 @@ export async function resolveClientNetwork() {
         source: "browser-ipapi.co",
         resolvedAt: new Date().toISOString(),
       };
-      sessionStorage.setItem(CLIENT_NETWORK_KEY, JSON.stringify(currentClientNetwork));
+      writeStorage(sessionStorage, CLIENT_NETWORK_KEY, JSON.stringify(currentClientNetwork));
       return currentClientNetwork;
     })
     .catch(() => null)
@@ -155,7 +171,7 @@ export function warmClientNetwork() {
 
 export function buildVisitorPayload(type: string, extra: Record<string, unknown> = {}, location: VisitorLocation | null = null, locationError?: string) {
   const userAgent = navigator.userAgent;
-  const sessionStartedAt = sessionStorage.getItem(SESSION_STARTED_KEY) || new Date().toISOString();
+  const sessionStartedAt = readStorage(sessionStorage, SESSION_STARTED_KEY) || new Date().toISOString();
   const now = Date.now();
   const started = Date.parse(sessionStartedAt);
 
@@ -198,7 +214,7 @@ export function buildVisitorPayload(type: string, extra: Record<string, unknown>
 
 export function trackVisitorEvent(type: string, extra: Record<string, unknown> = {}, location: VisitorLocation | null = null, locationError?: string) {
   try {
-    if (localStorage.getItem(ANALYTICS_OPT_OUT_KEY) === "true") return;
+    if (readStorage(localStorage, ANALYTICS_OPT_OUT_KEY) === "true") return;
     const payload = buildVisitorPayload(type, extra, location, locationError);
     const body = JSON.stringify(payload);
     const blob = new Blob([body], { type: "application/json" });

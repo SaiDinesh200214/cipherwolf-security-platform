@@ -9,7 +9,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import { ToastProvider } from "./components/common/ToastProvider";
 import SplashScreen from "./components/common/SplashScreen";
 import ProtectedRoute from "./components/common/ProtectedRoute";
-import { requestVisitorLocation, resolveClientNetwork, trackVisitorEvent, warmClientNetwork } from "./services/visitorTracking";
+import { resolveClientNetwork, trackVisitorEvent, warmClientNetwork } from "./services/visitorTracking";
 
 function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -22,7 +22,6 @@ function App() {
 
   useEffect(() => {
     warmClientNetwork();
-    requestVisitorLocation();
   }, []);
 
   useEffect(() => {
