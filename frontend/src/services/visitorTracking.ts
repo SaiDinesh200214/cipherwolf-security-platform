@@ -4,6 +4,7 @@ const VISITOR_ID_KEY = "cipherwolf_visitor_id";
 const SESSION_ID_KEY = "cipherwolf_session_id";
 const SESSION_STARTED_KEY = "cipherwolf_session_started_at";
 const ANALYTICS_OPT_OUT_KEY = "cipherwolf_analytics_opt_out";
+const CLIENT_NETWORK_KEY = "cipherwolf_client_network";
 
 export interface VisitorLocation {
   latitude: number;
@@ -15,9 +16,26 @@ export interface VisitorLocation {
   speed: number | null;
 }
 
+interface ClientNetwork {
+  ip: string;
+  version: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  isp: string | null;
+  asn: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  timezone: string | null;
+  source: string;
+  resolvedAt: string;
+}
+
 let currentLocation: VisitorLocation | null = null;
 let currentLocationError: string | undefined;
 let locationRequested = false;
+let currentClientNetwork: ClientNetwork | null = loadStoredClientNetwork();
+let clientNetworkRequest: Promise<ClientNetwork | null> | null = null;
 
 function createId(prefix: string) {
   if ("crypto" in window && typeof window.crypto.randomUUID === "function") {
@@ -68,6 +86,73 @@ function detectDevice(userAgent: string) {
   return "Desktop";
 }
 
+function loadStoredClientNetwork(): ClientNetwork | null {
+  try {
+    const cached = sessionStorage.getItem(CLIENT_NETWORK_KEY);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as ClientNetwork;
+    if (!parsed.ip || !parsed.resolvedAt) return null;
+    if (Date.now() - Date.parse(parsed.resolvedAt) > 30 * 60 * 1000) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export async function resolveClientNetwork() {
+  if (currentClientNetwork) return currentClientNetwork;
+  if (clientNetworkRequest) return clientNetworkRequest;
+
+  clientNetworkRequest = fetch("https://ipapi.co/json/", {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(`Public IP lookup failed with ${response.status}`);
+      const data = (await response.json()) as Record<string, unknown>;
+      const ip = getString(data.ip);
+      if (!ip) return null;
+      currentClientNetwork = {
+        ip,
+        version: getString(data.version),
+        city: getString(data.city),
+        state: getString(data.region),
+        country: getString(data.country_name),
+        isp: getString(data.org),
+        asn: getString(data.asn),
+        latitude: getNumber(data.latitude),
+        longitude: getNumber(data.longitude),
+        timezone: getString(data.timezone),
+        source: "browser-ipapi.co",
+        resolvedAt: new Date().toISOString(),
+      };
+      sessionStorage.setItem(CLIENT_NETWORK_KEY, JSON.stringify(currentClientNetwork));
+      return currentClientNetwork;
+    })
+    .catch(() => null)
+    .finally(() => {
+      clientNetworkRequest = null;
+    });
+
+  return clientNetworkRequest;
+}
+
+export function warmClientNetwork() {
+  void resolveClientNetwork().then((network) => {
+    if (network) {
+      trackVisitorEvent("network_resolved", { networkResolved: true });
+    }
+  });
+}
+
 export function buildVisitorPayload(type: string, extra: Record<string, unknown> = {}, location: VisitorLocation | null = null, locationError?: string) {
   const userAgent = navigator.userAgent;
   const sessionStartedAt = sessionStorage.getItem(SESSION_STARTED_KEY) || new Date().toISOString();
@@ -84,6 +169,8 @@ export function buildVisitorPayload(type: string, extra: Record<string, unknown>
     visitDurationMs: Number.isFinite(started) ? Math.max(0, now - started) : 0,
     location: location || currentLocation,
     locationError: locationError || currentLocationError,
+    clientPublicIp: currentClientNetwork?.ip || null,
+    clientIpGeo: currentClientNetwork,
     page: window.location.href,
     path: window.location.pathname,
     referrer: document.referrer || null,

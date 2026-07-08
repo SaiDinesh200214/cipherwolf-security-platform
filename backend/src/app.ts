@@ -295,6 +295,8 @@ const visitorLogSchema = z.object({
   timezone: z.string().trim().max(120).optional(),
   screen: z.record(z.string(), z.unknown()).optional(),
   viewport: z.record(z.string(), z.unknown()).optional(),
+  clientPublicIp: z.string().trim().max(120).optional().nullable(),
+  clientIpGeo: z.record(z.string(), z.unknown()).optional().nullable(),
   projectId: z.string().trim().max(160).optional(),
   projectTitle: z.string().trim().max(240).optional(),
   projectCategory: z.string().trim().max(120).optional(),
@@ -356,9 +358,41 @@ const cmsBackupSchema = z.object({
 });
 
 function getClientIp(request: FastifyRequest): string {
+  const cfConnectingIp = request.headers["cf-connecting-ip"];
+  if (typeof cfConnectingIp === "string" && cfConnectingIp.trim()) return cfConnectingIp.trim();
+  const trueClientIp = request.headers["true-client-ip"];
+  if (typeof trueClientIp === "string" && trueClientIp.trim()) return trueClientIp.trim();
+  const realIp = request.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
   const forwarded = request.headers["x-forwarded-for"];
   if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
   return request.ip;
+}
+
+function normalizeIpCandidate(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/^::ffff:/, "");
+  if (!normalized || normalized.length > 80) return null;
+  const looksLikeIp = /^[a-f0-9:.]+$/i.test(normalized) && (normalized.includes(".") || normalized.includes(":"));
+  return looksLikeIp ? normalized : null;
+}
+
+function normalizeClientIpGeo(value: unknown, fallbackIp: string | null): IpGeoLocation | null {
+  if (!value || typeof value !== "object") return null;
+  const geo = value as Record<string, unknown>;
+  const ip = normalizeIpCandidate(geo.ip) || fallbackIp;
+  if (!ip) return null;
+  return {
+    ip,
+    country: getString(geo.country),
+    state: getString(geo.state),
+    city: getString(geo.city),
+    isp: getString(geo.isp),
+    asn: getString(geo.asn),
+    latitude: getNumber(geo.latitude),
+    longitude: getNumber(geo.longitude),
+    source: getString(geo.source) || "browser-public-ip",
+  };
 }
 
 function isPublicIp(ip: string) {
@@ -1046,6 +1080,7 @@ async function getVisitorIntelligence(includeDeleted = false) {
       visitorKey,
       visitorId: latest.visitorId,
       ip: latest.ip,
+      serverIp: getMetadataValue(latestMetadata, "serverIp"),
       color: ipColor(visitorKey),
       customName: note?.customName || null,
       hostname: note?.hostname || null,
@@ -1858,11 +1893,17 @@ export async function createApp() {
       source: parsedBody.source ? sanitizeText(parsedBody.source) : undefined,
       metadata: sanitizeJson(parsedBody.metadata || {}) as Record<string, unknown>,
     };
-    const ip = getClientIp(request);
-    const ipGeo = await getIpGeoLocation(ip);
+    const serverIp = getClientIp(request);
+    const clientIp = normalizeIpCandidate(body.metadata?.clientPublicIp);
+    const ip = clientIp || serverIp;
+    const clientIpGeo = normalizeClientIpGeo(body.metadata?.clientIpGeo, clientIp);
+    const ipGeo = clientIpGeo || await getIpGeoLocation(ip);
     const ipReputation = await getIpReputation(ip);
     const metadata = {
       ...(body.metadata || {}),
+      clientPublicIp: clientIp,
+      clientIpGeo,
+      serverIp,
       ipGeo,
       ipReputation,
     };
@@ -1910,11 +1951,17 @@ export async function createApp() {
       metadata: sanitizeJson(parsedBody.metadata || {}) as Record<string, unknown>,
     };
     const analyticsPath = body.path.slice(0, 300);
-    const ip = getClientIp(request);
-    const ipGeo = await getIpGeoLocation(ip);
+    const serverIp = getClientIp(request);
+    const clientIp = normalizeIpCandidate(body.metadata?.clientPublicIp);
+    const ip = clientIp || serverIp;
+    const clientIpGeo = normalizeClientIpGeo(body.metadata?.clientIpGeo, clientIp);
+    const ipGeo = clientIpGeo || await getIpGeoLocation(ip);
     const ipReputation = await getIpReputation(ip);
     const metadata = {
       ...(body.metadata || {}),
+      clientPublicIp: clientIp,
+      clientIpGeo,
+      serverIp,
       ipGeo,
       ipReputation,
     };
@@ -1974,11 +2021,17 @@ export async function createApp() {
     const parsedBody = visitorLogSchema.parse(request.body);
     const body = sanitizeJson(parsedBody) as typeof parsedBody;
     const path = sanitizeText(body.path || (body.page ? new URL(body.page, "http://localhost").pathname : "/"));
-    const ip = getClientIp(request);
-    const ipGeo = await getIpGeoLocation(ip);
+    const serverIp = getClientIp(request);
+    const clientIp = normalizeIpCandidate(body.clientPublicIp);
+    const ip = clientIp || serverIp;
+    const clientIpGeo = normalizeClientIpGeo(body.clientIpGeo, clientIp);
+    const ipGeo = clientIpGeo || await getIpGeoLocation(ip);
     const ipReputation = await getIpReputation(ip);
     const metadata = {
       ...body,
+      clientPublicIp: clientIp,
+      clientIpGeo,
+      serverIp,
       ipGeo,
       ipReputation,
     };

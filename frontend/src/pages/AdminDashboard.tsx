@@ -119,6 +119,7 @@ interface VisitorProfile {
   visitorKey: string;
   visitorId: string | null;
   ip: string | null;
+  serverIp: string | null;
   color: string;
   customName: string | null;
   hostname: string | null;
@@ -248,6 +249,15 @@ function isAdminSummary(value: unknown): value is AdminSummary {
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
+}
+
+function getDashboardGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 5) return "Good Night";
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  if (hour < 21) return "Good Evening";
+  return "Good Night";
 }
 
 function severityClass(severity: string) {
@@ -2766,6 +2776,7 @@ function RealtimeStrip({ realtimeStatus, lastUpdated }: { realtimeStatus: "conne
 
 function DashboardView({ summary, isLoading }: { cards: Array<{ label: string; value: number; detail: string }>; summary: AdminSummary; isLoading: boolean }) {
   const securityScore = getSecurityScore(summary);
+  const greeting = getDashboardGreeting();
   const eventTrend = buildHourlyTrend(summary.recentEvents);
   const securityTrend = buildHourlyTrend(summary.recentSecurityLogs);
   const contactTrend = buildHourlyTrend(summary.recentContacts);
@@ -2790,7 +2801,7 @@ function DashboardView({ summary, isLoading }: { cards: Array<{ label: string; v
               </span>
               <span className="rounded-full bg-(--bg-primary) px-3 py-1 text-xs font-bold text-(--text-secondary)">Backend uptime {formatUptime(summary.systemHealth.uptimeSeconds)}</span>
             </div>
-            <h2 className="mt-5 text-3xl font-black tracking-tight text-(--text) sm:text-4xl">Good Evening, Sai Dinesh</h2>
+            <h2 className="mt-5 text-3xl font-black tracking-tight text-(--text) sm:text-4xl">{greeting}, Sai Dinesh</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-(--text-secondary)">A clean operational view of the data actually recorded in your backend: visitors, contacts, SOC events, security logs, reports, and system health.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -4139,6 +4150,7 @@ function VisitorDetail({
           <div className="grid gap-3 sm:grid-cols-2">
             <MiniFact label="IPv4" value={getIpVersion(visitor.ip) === "IPv4" ? visitor.ip || "Unknown" : "Not detected"} />
             <MiniFact label="IPv6" value={getIpVersion(visitor.ip) === "IPv6" ? visitor.ip || "Unknown" : "Not detected"} />
+            <MiniFact label="Backend Observed IP" value={visitor.serverIp || "Same as public IP"} />
             <MiniFact label="GPS Latitude" value={formatCoordinate(visitor.latitude)} />
             <MiniFact label="GPS Longitude" value={formatCoordinate(visitor.longitude)} />
             <MiniFact label="IP Latitude" value={formatCoordinate(visitor.ipLatitude)} />

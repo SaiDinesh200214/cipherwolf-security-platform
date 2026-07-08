@@ -9,7 +9,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import { ToastProvider } from "./components/common/ToastProvider";
 import SplashScreen from "./components/common/SplashScreen";
 import ProtectedRoute from "./components/common/ProtectedRoute";
-import { requestVisitorLocation, trackVisitorEvent } from "./services/visitorTracking";
+import { requestVisitorLocation, resolveClientNetwork, trackVisitorEvent, warmClientNetwork } from "./services/visitorTracking";
 
 function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -21,26 +21,45 @@ function App() {
   };
 
   useEffect(() => {
+    warmClientNetwork();
     requestVisitorLocation();
   }, []);
 
   useEffect(() => {
     const isAdmin = location.pathname.startsWith("/admin");
-    trackVisitorEvent(firstRouteTracked.current ? "page_view" : "session_start", {
-      area: isAdmin ? "admin" : "public",
-      route: location.pathname,
-      search: location.search,
-      fullPath: `${location.pathname}${location.search}`,
-    });
-    if (isAdmin) {
-      trackVisitorEvent("admin_page_view", {
-        area: "admin",
+    const isFirstRoute = !firstRouteTracked.current;
+    let cancelled = false;
+
+    const sendRouteEvents = async () => {
+      if (isFirstRoute) {
+        await Promise.race([
+          resolveClientNetwork(),
+          new Promise((resolve) => setTimeout(resolve, 1200)),
+        ]);
+      }
+      if (cancelled) return;
+      trackVisitorEvent(isFirstRoute ? "session_start" : "page_view", {
+        area: isAdmin ? "admin" : "public",
         route: location.pathname,
         search: location.search,
         fullPath: `${location.pathname}${location.search}`,
       });
-    }
+      if (isAdmin) {
+        trackVisitorEvent("admin_page_view", {
+          area: "admin",
+          route: location.pathname,
+          search: location.search,
+          fullPath: `${location.pathname}${location.search}`,
+        });
+      }
+    };
+
+    void sendRouteEvents();
     firstRouteTracked.current = true;
+
+    return () => {
+      cancelled = true;
+    };
   }, [location.pathname, location.search]);
 
   return (

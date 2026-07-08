@@ -23,9 +23,7 @@ export function clearAdminToken() {
 }
 
 export function getRealtimeUrl(): string {
-  const explicitBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  const origin = explicitBase || window.location.origin;
-  const url = new URL(origin);
+  const url = new URL(API_BASE_URL);
 
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/api/realtime";
