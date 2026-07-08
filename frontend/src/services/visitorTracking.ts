@@ -15,6 +15,10 @@ export interface VisitorLocation {
   speed: number | null;
 }
 
+let currentLocation: VisitorLocation | null = null;
+let currentLocationError: string | undefined;
+let locationRequested = false;
+
 function createId(prefix: string) {
   if ("crypto" in window && typeof window.crypto.randomUUID === "function") {
     return `${prefix}_${window.crypto.randomUUID()}`;
@@ -75,10 +79,11 @@ export function buildVisitorPayload(type: string, extra: Record<string, unknown>
     visitorId: getVisitorId(),
     sessionId: getSessionId(),
     collectedAt: new Date().toISOString(),
+    clientTimestamp: Date.now(),
     sessionStartedAt,
     visitDurationMs: Number.isFinite(started) ? Math.max(0, now - started) : 0,
-    location,
-    locationError,
+    location: location || currentLocation,
+    locationError: locationError || currentLocationError,
     page: window.location.href,
     path: window.location.pathname,
     referrer: document.referrer || null,
@@ -123,4 +128,29 @@ export function trackVisitorEvent(type: string, extra: Record<string, unknown> =
   } catch {
     // Analytics must never break the portfolio experience.
   }
+}
+
+export function requestVisitorLocation() {
+  if (locationRequested || !("geolocation" in navigator)) return;
+  locationRequested = true;
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      currentLocation = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        altitude: position.coords.altitude,
+        altitudeAccuracy: position.coords.altitudeAccuracy,
+        heading: position.coords.heading,
+        speed: position.coords.speed,
+      };
+      currentLocationError = undefined;
+      trackVisitorEvent("location_granted", { permission: "granted" }, currentLocation);
+    },
+    (error) => {
+      currentLocationError = error.message || "Location permission unavailable";
+      trackVisitorEvent("location_unavailable", { permission: "denied_or_unavailable", code: error.code }, null, currentLocationError);
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 5 * 60 * 1000 }
+  );
 }

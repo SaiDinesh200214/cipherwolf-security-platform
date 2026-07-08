@@ -929,8 +929,11 @@ function CmsView() {
   const [publishedContent, setPublishedContent] = useState<PortfolioContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [editingManager, setEditingManager] = useState<CmsManager | null>(null);
+  const [editSnapshot, setEditSnapshot] = useState<PortfolioContent | null>(null);
   const validationIssues = useMemo(() => validateCmsContent(content), [content]);
   const hasDraftChanges = useMemo(() => JSON.stringify(content) !== JSON.stringify(publishedContent), [content, publishedContent]);
+  const managerNeedsEditMode = activeManager !== "trash" && activeManager !== "backups";
 
   useEffect(() => {
     apiRequest<{ content: PortfolioContent | null; updatedAt: string | null }>("/admin/cms", { auth: true })
@@ -960,6 +963,20 @@ function CmsView() {
       return;
     }
     setActiveManager(manager);
+    setEditingManager(null);
+    setEditSnapshot(null);
+  };
+
+  const openManagerEdit = () => {
+    setEditSnapshot(structuredClone(content));
+    setEditingManager(activeManager);
+  };
+
+  const cancelManagerEdit = () => {
+    if (editSnapshot) setContent(editSnapshot);
+    setEditingManager(null);
+    setEditSnapshot(null);
+    showToast("Edit Cancelled", "CMS draft changes for this manager were discarded.", "success");
   };
 
   const updateContent: CmsUpdateContent = (updater, undo) => {
@@ -1107,20 +1124,34 @@ function CmsView() {
         )}
 
         <div className="mt-6">
-          {activeManager === "hero" && <HeroManager content={content} updateContent={updateContent} />}
-          {activeManager === "about" && <AboutManager content={content} updateContent={updateContent} />}
-          {activeManager === "work" && <WorkManager content={content} updateContent={updateContent} />}
-          {activeManager === "skills" && <SkillsManager content={content} updateContent={updateContent} />}
-          {activeManager === "services" && <ServicesManager content={content} updateContent={updateContent} />}
-          {activeManager === "projects" && <ProjectsManager content={content} updateContent={updateContent} />}
-          {activeManager === "resume" && <ResumeManager content={content} updateContent={updateContent} />}
-          {activeManager === "media" && <MediaManager content={content} updateContent={updateContent} />}
-          {activeManager === "social" && <SocialManager content={content} updateContent={updateContent} />}
-          {activeManager === "contact" && <ContactManager content={content} updateContent={updateContent} />}
-          {activeManager === "seo" && <SimpleTextManager title="SEO Manager" fields={[["Page title", content.seo.title], ["Meta description", content.seo.description]]} onChange={(index, value) => updateContent((draft) => { if (index === 0) draft.seo.title = value; else draft.seo.description = value; })} />}
-          {activeManager === "settings" && <SettingsManager content={content} updateContent={updateContent} />}
-          {activeManager === "trash" && <TrashManager content={content} updateContent={updateContent} />}
-          {activeManager === "backups" && <BackupManager content={content} setContent={setContent} setUpdatedAt={setUpdatedAt} />}
+          {managerNeedsEditMode && editingManager !== activeManager ? (
+            <CmsManagerPreview manager={activeManager} content={content} onEdit={openManagerEdit} />
+          ) : (
+            <>
+              {managerNeedsEditMode && (
+                <div className="mb-5 flex flex-wrap justify-end gap-2">
+                  <button onClick={cancelManagerEdit} className="inline-flex items-center gap-2 rounded-2xl border border-(--border) bg-white px-4 py-3 text-sm font-black text-(--text)">
+                    <X size={17} />
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {activeManager === "hero" && <HeroManager content={content} updateContent={updateContent} />}
+              {activeManager === "about" && <AboutManager content={content} updateContent={updateContent} />}
+              {activeManager === "work" && <WorkManager content={content} updateContent={updateContent} />}
+              {activeManager === "skills" && <SkillsManager content={content} updateContent={updateContent} />}
+              {activeManager === "services" && <ServicesManager content={content} updateContent={updateContent} />}
+              {activeManager === "projects" && <ProjectsManager content={content} updateContent={updateContent} />}
+              {activeManager === "resume" && <ResumeManager content={content} updateContent={updateContent} />}
+              {activeManager === "media" && <MediaManager content={content} updateContent={updateContent} />}
+              {activeManager === "social" && <SocialManager content={content} updateContent={updateContent} />}
+              {activeManager === "contact" && <ContactManager content={content} updateContent={updateContent} />}
+              {activeManager === "seo" && <SimpleTextManager title="SEO Manager" fields={[["Page title", content.seo.title], ["Meta description", content.seo.description]]} onChange={(index, value) => updateContent((draft) => { if (index === 0) draft.seo.title = value; else draft.seo.description = value; })} />}
+              {activeManager === "settings" && <SettingsManager content={content} updateContent={updateContent} />}
+              {activeManager === "trash" && <TrashManager content={content} updateContent={updateContent} />}
+              {activeManager === "backups" && <BackupManager content={content} setContent={setContent} setUpdatedAt={setUpdatedAt} />}
+            </>
+          )}
         </div>
       </section>
       {administrativePinModal}
@@ -1154,6 +1185,70 @@ function getFieldDescription(label: string) {
   if (normalized.includes("phone")) return "This phone number is shown in the contact area.";
   if (normalized.includes("location")) return "This tells visitors where you are based.";
   return "This field controls text or data shown on the public portfolio.";
+}
+
+function CmsManagerPreview({ manager, content, onEdit }: { manager: CmsManager; content: PortfolioContent; onEdit: () => void }) {
+  const details = getCmsManagerPreview(manager, content);
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-black text-(--text)">{cmsManagers.find((item) => item.id === manager)?.label}</h3>
+          <p className="mt-1 text-sm font-semibold text-(--text-secondary)">Review the published draft card first. Open edit mode only when you want to change it.</p>
+        </div>
+        <button onClick={onEdit} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
+          <Edit3 size={17} />
+          Edit
+        </button>
+      </div>
+      <div className="grid gap-3 rounded-3xl border border-(--border) bg-(--bg-primary) p-4 sm:grid-cols-2">
+        {details.map((detail) => (
+          <div key={detail.label} className="rounded-2xl bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">{detail.label}</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm font-semibold text-(--text)">{detail.value || "Not set"}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getCmsManagerPreview(manager: CmsManager, content: PortfolioContent): Array<{ label: string; value: string }> {
+  if (manager === "hero") return [
+    { label: "Name", value: content.hero.name },
+    { label: "Roles", value: content.hero.roles.join("\n") },
+    { label: "Intro", value: content.hero.intro },
+    { label: "Technology tags", value: content.hero.techTags.join(", ") },
+  ];
+  if (manager === "about") return [
+    { label: "Heading", value: content.about.heading },
+    { label: "Body", value: content.about.body },
+    { label: "Cards", value: content.about.cards.map((card) => card.title).join(", ") },
+    { label: "Stats", value: content.about.stats.map((stat) => `${stat.target} ${stat.label}`).join("\n") },
+  ];
+  if (manager === "work") return content.work.experiences.slice(0, 6).map((item) => ({ label: item.company || "Work", value: `${item.role}\n${item.period}` }));
+  if (manager === "skills") return content.skills.groups.slice(0, 6).map((item) => ({ label: item.title, value: item.tools.join(", ") }));
+  if (manager === "services") return content.services.items.slice(0, 6).map((item) => ({ label: item.title, value: item.desc }));
+  if (manager === "projects") return content.projects.items.slice(0, 6).map((item) => ({ label: item.title, value: `${item.category}\n${item.description}` }));
+  if (manager === "resume") return [
+    { label: "Resume URL", value: content.resume.url },
+    { label: "Download name", value: content.resume.downloadName },
+  ];
+  if (manager === "media") return content.media.library.slice(0, 6).map((item) => ({ label: item.label, value: `${item.type}\n${item.url}` }));
+  if (manager === "social") return content.social.links.slice(0, 6).map((item) => ({ label: item.label, value: item.url }));
+  if (manager === "contact") return [
+    { label: "Heading", value: content.contact.heading },
+    { label: "Intro", value: content.contact.intro },
+    { label: "Location", value: content.contact.location },
+    { label: "Email", value: content.contact.email },
+    { label: "Phone", value: content.contact.phone },
+  ];
+  if (manager === "seo") return [
+    { label: "Page title", value: content.seo.title },
+    { label: "Meta description", value: content.seo.description },
+  ];
+  if (manager === "settings") return Object.entries(content.settings).map(([label, value]) => ({ label, value: String(value) }));
+  return [{ label: "Manager", value: cmsManagers.find((item) => item.id === manager)?.label || manager }];
 }
 
 function SimpleTextManager({ title, fields, onChange }: { title: string; fields: Array<[string, string]>; onChange: (index: number, value: string) => void }) {
@@ -2346,26 +2441,58 @@ function IconGuide() {
 
 function TrashManager({ content, updateContent }: { content: PortfolioContent; updateContent: (updater: (draft: PortfolioContent) => void) => void }) {
   const { showToast } = useToast();
+  const [selectedTrashIds, setSelectedTrashIds] = useState<string[]>([]);
   const items = content.trash.items || [];
+  const selectedItems = items.filter((item) => selectedTrashIds.includes(item.id));
+
+  useEffect(() => {
+    setSelectedTrashIds((current) => current.filter((id) => items.some((item) => item.id === id)));
+  }, [items]);
+
+  const toggleTrashItem = (id: string) => {
+    setSelectedTrashIds((current) => current.includes(id) ? current.filter((itemId) => itemId !== id) : [...current, id]);
+  };
+
+  const selectAllTrash = () => {
+    setSelectedTrashIds((current) => current.length === items.length ? [] : items.map((item) => item.id));
+  };
+
+  const restoreTrashItemToDraft = (draft: PortfolioContent, trashItem: CmsTrashItem) => {
+    if (trashItem.type === "skill") {
+      draft.skills.groups.push(trashItem.item as SkillGroup);
+    } else if (trashItem.type === "project") {
+      const project = trashItem.item as ProjectItem;
+      if (!draft.projects.categories.includes(project.category)) draft.projects.categories.push(project.category);
+      draft.projects.items.push(project);
+    } else if (trashItem.type === "work") {
+      draft.work.experiences.push(trashItem.item as WorkExperience);
+    } else if (trashItem.type === "service") {
+      draft.services.items.push(trashItem.item as ServiceItem);
+    } else if (trashItem.type === "social") {
+      draft.social.links.push(trashItem.item as SocialLinkItem);
+    }
+  };
 
   const restoreItem = (trashItem: CmsTrashItem, index: number) => {
     updateContent((draft) => {
       draft.trash.items.splice(index, 1);
-      if (trashItem.type === "skill") {
-        draft.skills.groups.push(trashItem.item as SkillGroup);
-      } else if (trashItem.type === "project") {
-        const project = trashItem.item as ProjectItem;
-        if (!draft.projects.categories.includes(project.category)) draft.projects.categories.push(project.category);
-        draft.projects.items.push(project);
-      } else if (trashItem.type === "work") {
-        draft.work.experiences.push(trashItem.item as WorkExperience);
-      } else if (trashItem.type === "service") {
-        draft.services.items.push(trashItem.item as ServiceItem);
-      } else if (trashItem.type === "social") {
-        draft.social.links.push(trashItem.item as SocialLinkItem);
-      }
+      restoreTrashItemToDraft(draft, trashItem);
     });
     showToast("Item Restored", `${trashItem.label} was restored to ${trashItem.type}.`, "success");
+  };
+
+  const restoreSelected = () => {
+    if (!selectedItems.length) return;
+    updateContent((draft) => {
+      const ids = new Set(selectedTrashIds);
+      draft.trash.items = draft.trash.items.filter((trashItem) => {
+        if (!ids.has(trashItem.id)) return true;
+        restoreTrashItemToDraft(draft, trashItem);
+        return false;
+      });
+    });
+    showToast("Items Restored", `${selectedItems.length} trash items were restored.`, "success");
+    setSelectedTrashIds([]);
   };
 
   const deleteForever = (trashItem: CmsTrashItem, index: number) => {
@@ -2385,6 +2512,17 @@ function TrashManager({ content, updateContent }: { content: PortfolioContent; u
     showToast("Trash Cleared", "All trash items were permanently removed.", "success");
   };
 
+  const deleteSelectedForever = () => {
+    if (!selectedItems.length) return;
+    if (!window.confirm(`Permanently delete ${selectedItems.length} selected trash items?`)) return;
+    updateContent((draft) => {
+      const ids = new Set(selectedTrashIds);
+      draft.trash.items = draft.trash.items.filter((trashItem) => !ids.has(trashItem.id));
+    });
+    showToast("Deleted Forever", `${selectedItems.length} trash items were permanently removed.`, "success");
+    setSelectedTrashIds([]);
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-(--border) bg-(--bg-primary) p-4">
@@ -2392,14 +2530,24 @@ function TrashManager({ content, updateContent }: { content: PortfolioContent; u
           <h3 className="text-lg font-black text-(--text)">Trash And Restore</h3>
           <p className="mt-1 text-sm font-semibold text-(--text-secondary)">Deleted CMS items stay here until you restore or permanently remove them.</p>
         </div>
-        <button
-          onClick={clearTrash}
-          disabled={!items.length}
-          className="inline-flex items-center gap-2 rounded-2xl bg-red-100 px-4 py-3 text-sm font-black text-red-700 disabled:opacity-40"
-        >
-          <Trash2 size={17} />
-          Clear Trash
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={selectAllTrash} disabled={!items.length} className="inline-flex items-center gap-2 rounded-2xl border border-(--border) bg-white px-4 py-3 text-sm font-black text-(--text) disabled:opacity-40">
+            <Check size={17} />
+            {selectedTrashIds.length === items.length ? "Clear Selection" : "Select All"}
+          </button>
+          <button onClick={restoreSelected} disabled={!selectedItems.length} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-700 disabled:opacity-40">
+            <Undo2 size={17} />
+            Restore Selected
+          </button>
+          <button onClick={deleteSelectedForever} disabled={!selectedItems.length} className="inline-flex items-center gap-2 rounded-2xl bg-red-100 px-4 py-3 text-sm font-black text-red-700 disabled:opacity-40">
+            <Trash2 size={17} />
+            Delete Selected
+          </button>
+          <button onClick={clearTrash} disabled={!items.length} className="inline-flex items-center gap-2 rounded-2xl bg-red-100 px-4 py-3 text-sm font-black text-red-700 disabled:opacity-40">
+            <Trash2 size={17} />
+            Clear Trash
+          </button>
+        </div>
       </div>
 
       {!items.length ? (
@@ -2412,10 +2560,13 @@ function TrashManager({ content, updateContent }: { content: PortfolioContent; u
           {items.map((trashItem, index) => (
             <article key={trashItem.id} className="rounded-3xl border border-(--border) bg-(--bg-primary) p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="flex min-w-0 gap-3">
+                  <input type="checkbox" checked={selectedTrashIds.includes(trashItem.id)} onChange={() => toggleTrashItem(trashItem.id)} className="mt-1 h-4 w-4 accent-[#101828]" aria-label={`Select ${trashItem.label}`} />
+                  <div className="min-w-0">
                   <p className="text-xs font-black uppercase tracking-[0.18em] text-(--text-secondary)">{trashItem.type}</p>
                   <h3 className="mt-1 text-lg font-black text-(--text)">{trashItem.label}</h3>
                   <p className="mt-1 text-xs font-semibold text-(--text-secondary)">Deleted {formatDate(trashItem.deletedAt)}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => restoreItem(trashItem, index)} className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-100 text-emerald-700" aria-label="Restore item"><Undo2 size={17} /></button>
@@ -3049,6 +3200,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
   const [mapFocus, setMapFocus] = useState<"target" | "admin" | "distance">("target");
   const [draft, setDraft] = useState({ customName: "", hostname: "", flag: "monitor", notes: "" });
   const [visitorLogView, setVisitorLogView] = useState<"public" | "admin">("public");
+  const [selectedVisitorKeys, setSelectedVisitorKeys] = useState<string[]>([]);
   const adminLoginLogs = useMemo(() => {
     const words = ["login", "admin", "otp", "password", "unlock", "logout", "route"];
     return summary.recentSecurityLogs.filter((log) => {
@@ -3102,6 +3254,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
       return matchesFlag && (!normalized || haystack.includes(normalized));
     });
   }, [flagFilter, query, visitors]);
+  const selectedVisitors = filteredVisitors.filter((visitor) => selectedVisitorKeys.includes(visitor.visitorKey));
 
   const selectedVisitor = visitors.find((visitor) => visitor.visitorKey === selectedKey) || filteredVisitors[0] || visitors[0];
 
@@ -3118,7 +3271,12 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
 
   useEffect(() => {
     setSelectedKey("");
+    setSelectedVisitorKeys([]);
   }, [visitorBin]);
+
+  useEffect(() => {
+    setSelectedVisitorKeys((current) => current.filter((key) => filteredVisitors.some((visitor) => visitor.visitorKey === key)));
+  }, [filteredVisitors]);
 
   const saveVisitorNotes = async (administrativePin: string) => {
     if (!selectedVisitor) return;
@@ -3192,6 +3350,31 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
         void runDelete();
       },
     });
+  };
+
+  const toggleVisitorSelection = (visitorKey: string) => {
+    setSelectedVisitorKeys((current) => current.includes(visitorKey) ? current.filter((key) => key !== visitorKey) : [...current, visitorKey]);
+  };
+
+  const toggleAllVisitors = () => {
+    setSelectedVisitorKeys((current) => current.length === filteredVisitors.length ? [] : filteredVisitors.map((visitor) => visitor.visitorKey));
+  };
+
+  const deleteSelectedVisitors = async (mode: "trash" | "permanent", administrativePin: string) => {
+    if (!selectedVisitorKeys.length) return;
+    const toastId = showToast(mode === "permanent" ? "Deleting Selected" : "Moving Selected", "Updating selected visitor records...", "loading");
+    try {
+      await apiRequest("/admin/visitors/bulk-delete", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ visitorKeys: selectedVisitorKeys, mode, administrativePin }),
+      });
+      setSelectedVisitorKeys([]);
+      await loadVisitors();
+      updateToast(toastId, mode === "permanent" ? "Selected Deleted" : "Selected Moved", mode === "permanent" ? "Selected visitors were permanently deleted." : "Selected visitors were moved to trash.", "success");
+    } catch (err) {
+      updateToast(toastId, "Bulk Action Failed", err instanceof Error ? err.message : "Please try again.", "error");
+    }
   };
 
   const deleteVisitorEvent = async (eventId: string, administrativePin: string) => {
@@ -3364,8 +3547,30 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
             <div>
               <h2 className="text-xl font-black text-(--text)">Visitor Intelligence Sheet</h2>
               <p className="mt-1 text-sm text-(--text-secondary)">{filteredVisitors.length} rows shown from {visitors.length} {visitorBin === "trash" ? "trashed" : "tracked"} IP groups.</p>
+              {selectedVisitors.length > 0 && <p className="mt-1 text-xs font-black text-[#101828]">{selectedVisitors.length} selected for bulk action.</p>}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={toggleAllVisitors}
+                disabled={!filteredVisitors.length}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-(--border) bg-white px-4 text-sm font-bold text-(--text) disabled:opacity-40"
+              >
+                <Check size={16} />
+                {selectedVisitorKeys.length === filteredVisitors.length && filteredVisitors.length > 0 ? "Clear All" : "Select All"}
+              </button>
+              <button
+                onClick={() => requestAdministrativePin({
+                  title: visitorBin === "trash" ? "Delete Selected Forever" : "Move Selected To Trash",
+                  message: visitorBin === "trash" ? "Enter your Administrative PIN to permanently delete all selected visitor data." : "Enter your Administrative PIN to move all selected visitor data to trash.",
+                  confirmLabel: visitorBin === "trash" ? "Delete Selected" : "Move Selected",
+                  onConfirm: (pin) => void deleteSelectedVisitors(visitorBin === "trash" ? "permanent" : "trash", pin),
+                })}
+                disabled={!selectedVisitorKeys.length}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-100 px-4 text-sm font-bold text-red-700 disabled:opacity-40"
+              >
+                <Trash2 size={16} />
+                {visitorBin === "trash" ? "Delete Selected" : "Move Selected"}
+              </button>
               <div className="inline-flex rounded-2xl border border-(--border) bg-(--bg-primary) p-1">
                 {(["active", "trash"] as const).map((bin) => (
                   <button
@@ -3419,6 +3624,9 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
           <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
             <thead className="bg-(--bg-primary) text-xs font-black uppercase tracking-wide text-(--text-secondary)">
               <tr>
+                <th className="px-5 py-4">
+                  <input type="checkbox" checked={selectedVisitorKeys.length === filteredVisitors.length && filteredVisitors.length > 0} onChange={toggleAllVisitors} className="h-4 w-4 accent-[#101828]" aria-label="Select all visitor rows" />
+                </th>
                 <th className="px-5 py-4">Visitor</th>
                 <th className="px-5 py-4">Location</th>
                 <th className="px-5 py-4">Device</th>
@@ -3432,16 +3640,19 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-(--text-secondary)">Loading visitor intelligence...</td>
+                  <td colSpan={9} className="px-5 py-8 text-center text-(--text-secondary)">Loading visitor intelligence...</td>
                 </tr>
               )}
               {!isLoading && filteredVisitors.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-(--text-secondary)">No visitor profiles match this filter.</td>
+                  <td colSpan={9} className="px-5 py-8 text-center text-(--text-secondary)">No visitor profiles match this filter.</td>
                 </tr>
               )}
               {filteredVisitors.map((visitor) => (
                 <tr key={visitor.visitorKey} className={`border-t border-(--border) transition hover:bg-(--bg-primary) ${selectedVisitor?.visitorKey === visitor.visitorKey ? "bg-slate-50" : "bg-white"}`}>
+                  <td className="px-5 py-4">
+                    <input type="checkbox" checked={selectedVisitorKeys.includes(visitor.visitorKey)} onChange={() => toggleVisitorSelection(visitor.visitorKey)} className="h-4 w-4 accent-[#101828]" aria-label={`Select ${visitor.customName || visitor.ip || visitor.visitorKey}`} />
+                  </td>
                   <td className="px-5 py-4">
                     <button onClick={() => selectVisitor(visitor)} className="flex min-w-0 items-center gap-3 text-left">
                       <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-4 ring-slate-100" style={{ backgroundColor: visitor.color }} />

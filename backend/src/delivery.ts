@@ -26,6 +26,20 @@ interface SendContactNotificationInput {
   createdAt: string;
 }
 
+interface SendSecurityAlertInput {
+  to: string;
+  title: string;
+  severity: "info" | "warning" | "critical";
+  detail: string;
+  ip: string;
+  path: string;
+  eventType: string;
+  location: string;
+  visitorId: string | null;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+}
+
 function purposeLabel(purpose: OtpPurpose): string {
   if (purpose === "password_reset") return "password reset";
   if (purpose === "account_unlock") return "account unlock";
@@ -248,6 +262,54 @@ export async function sendContactNotification(input: SendContactNotificationInpu
     to: input.to,
     replyTo: input.email,
     subject: `New portfolio contact: ${input.subject}`,
+    text,
+    html,
+  });
+}
+
+export async function sendSecurityAlertNotification(input: SendSecurityAlertInput) {
+  if (!input.to) return false;
+
+  const text = [
+    `CipherWolf ${input.severity.toUpperCase()} alert`,
+    "------------------------------",
+    "",
+    `Title: ${input.title}`,
+    `Event: ${input.eventType}`,
+    `Time: ${input.createdAt}`,
+    `IP: ${input.ip}`,
+    `Location: ${input.location}`,
+    `Path: ${input.path}`,
+    `Visitor ID: ${input.visitorId || "Unknown"}`,
+    "",
+    input.detail,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:Inter,Arial,sans-serif;background:#f4f7fb;padding:28px;color:#101828">
+      <div style="max-width:680px;margin:auto;background:#fff;border:1px solid #e4e7ec;border-radius:24px;overflow:hidden;box-shadow:0 20px 55px rgba(16,24,40,.10)">
+        <div style="background:#101828;color:#fff;padding:24px 28px">
+          <p style="font-size:12px;letter-spacing:2.4px;text-transform:uppercase;color:#b8c4d8;margin:0 0 10px">CipherWolf Security Platform</p>
+          <h1 style="font-size:25px;margin:0">${input.title}</h1>
+          <p style="margin:10px 0 0;font-size:13px;text-transform:uppercase;letter-spacing:1.8px;color:#d0d5dd">${input.severity} / ${input.eventType}</p>
+        </div>
+        <div style="padding:28px">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:22px">
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Time</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.createdAt}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">IP</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.ip}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Location</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.location}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085;border-bottom:1px solid #eef2f6">Path</td><td style="padding:10px 0;text-align:right;border-bottom:1px solid #eef2f6">${input.path}</td></tr>
+            <tr><td style="padding:10px 0;color:#667085">Visitor ID</td><td style="padding:10px 0;text-align:right">${input.visitorId || "Unknown"}</td></tr>
+          </table>
+          <div style="background:#f8fafc;border:1px solid #e4e7ec;border-radius:18px;padding:18px;color:#344054;font-size:15px;line-height:1.7;white-space:pre-wrap">${input.detail}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return sendResendEmail({
+    to: input.to,
+    subject: `CipherWolf ${input.severity.toUpperCase()}: ${input.title}`,
     text,
     html,
   });

@@ -9,7 +9,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { z } from "zod";
 import { config } from "./config.js";
 import { query, queryOne } from "./db.js";
-import { sendContactNotification } from "./delivery.js";
+import { sendContactNotification, sendSecurityAlertNotification } from "./delivery.js";
 import { createOtpChallenge, type OtpChannel, verifyOtpChallenge } from "./otp.js";
 import { addRealtimeClient, broadcastRealtime } from "./realtime.js";
 
@@ -314,6 +314,12 @@ const visitorDeleteSchema = z.object({
   mode: z.enum(["trash", "permanent"]).default("trash"),
 });
 
+const visitorBulkDeleteSchema = z.object({
+  visitorKeys: z.array(z.string().trim().min(1).max(180)).min(1).max(200),
+  mode: z.enum(["trash", "permanent"]).default("trash"),
+  administrativePin: z.string().regex(/^\d{6}$/, "Administrative PIN must be 6 digits.").optional(),
+});
+
 const reportSchema = z.object({
   type: z.enum(["visitor", "security", "contact", "resume", "projects", "monthly"]),
   format: z.enum(["json", "csv", "pdf", "excel"]).default("json"),
@@ -517,18 +523,64 @@ async function logAdminSecurityEvent(
   path = request.url || "/",
   metadata?: Record<string, unknown>
 ) {
-  await query(
+  const ip = getClientIp(request);
+  const log = await queryOne(
     `INSERT INTO admin_security_logs (event_type, path, reason, ip, user_agent, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, event_type AS "eventType", path, reason, ip, user_agent AS "userAgent", metadata, created_at AS "createdAt"`,
     [
       eventType,
       path.slice(0, 300),
       reason.slice(0, 200),
-      getClientIp(request),
+      ip,
       request.headers["user-agent"] || null,
       metadata ? JSON.stringify(metadata) : null,
     ]
   );
+  broadcastRealtime("security.created", log || { eventType, path, reason, ip, createdAt: new Date().toISOString() });
+}
+
+function formatIndiaTime(value: Date | string = new Date()) {
+  return new Date(value).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: true });
+}
+
+function getLocationSummary(ipGeo: IpGeoLocation | null) {
+  if (!ipGeo) return "Unknown";
+  return [ipGeo.city, ipGeo.state, ipGeo.country].filter(Boolean).join(", ") || "Unknown";
+}
+
+function alertSeverityForEvent(type: string, path: string): "info" | "warning" | "critical" {
+  const normalizedType = type.toLowerCase();
+  const normalizedPath = path.toLowerCase();
+  if (normalizedType.includes("threat") || normalizedType.includes("denied") || normalizedType.includes("failed") || normalizedPath.includes("/admin")) return "critical";
+  if (normalizedType.includes("location_unavailable") || normalizedType.includes("resume") || normalizedType.includes("contact")) return "warning";
+  return "info";
+}
+
+function shouldEmailVisitorEvent(type: string, path: string) {
+  const normalizedType = type.toLowerCase();
+  const normalizedPath = path.toLowerCase();
+  return normalizedType === "session_start" || normalizedType === "admin_page_view" || normalizedType.includes("threat") || normalizedPath.includes("/admin");
+}
+
+function sendSecurityAlertSafe(input: {
+  title: string;
+  severity: "info" | "warning" | "critical";
+  detail: string;
+  ip: string;
+  path: string;
+  eventType: string;
+  location: string;
+  visitorId: string | null;
+  createdAt?: Date | string;
+}, logger: FastifyInstance["log"]) {
+  void sendSecurityAlertNotification({
+    to: config.adminEmail,
+    ...input,
+    createdAt: formatIndiaTime(input.createdAt),
+  }).then((delivered) => {
+    if (!delivered) logger.warn("Security alert email credentials missing or invalid.");
+  }).catch((err) => logger.warn({ err }, "Security alert email failed"));
 }
 
 async function ensureBootstrapAdmin(username: string, password: string) {
@@ -1369,6 +1421,18 @@ export async function createApp() {
 
     await query("UPDATE admin_users SET last_login_at = now(), failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $1", [user.id]);
     await logAdminSecurityEvent(request, "login_success", "Admin login successful.");
+    const loginIp = getClientIp(request);
+    const loginGeo = await getIpGeoLocation(loginIp);
+    sendSecurityAlertSafe({
+      title: "Admin login successful",
+      severity: "critical",
+      detail: `Admin ${user.username} completed OTP login.`,
+      ip: loginIp,
+      path: "/api/auth/login/verify",
+      eventType: "login_success",
+      location: getLocationSummary(loginGeo),
+      visitorId: null,
+    }, app.log);
 
     const session = await createSessionCookies(app, reply, request, user);
 
@@ -1877,6 +1941,29 @@ export async function createApp() {
         [suspiciousReason, analyticsPath.toLowerCase().includes("/admin") ? "high" : "medium", "visitor-monitor", ip, `${body.type} at ${analyticsPath}`]
       );
       await logAdminSecurityEvent(request, "visitor_threat_detected", suspiciousReason, analyticsPath, metadata);
+      sendSecurityAlertSafe({
+        title: suspiciousReason,
+        severity: alertSeverityForEvent(body.type, analyticsPath),
+        detail: `${body.type} at ${analyticsPath}`,
+        ip,
+        path: analyticsPath,
+        eventType: body.type,
+        location: getLocationSummary(ipGeo),
+        visitorId: body.visitorId || null,
+        createdAt: (event as { createdAt?: Date })?.createdAt,
+      }, request.log);
+    } else if (shouldEmailVisitorEvent(body.type, analyticsPath)) {
+      sendSecurityAlertSafe({
+        title: analyticsPath.toLowerCase().includes("/admin") ? "Admin activity recorded" : "Visitor session started",
+        severity: alertSeverityForEvent(body.type, analyticsPath),
+        detail: `${body.type} at ${analyticsPath}`,
+        ip,
+        path: analyticsPath,
+        eventType: body.type,
+        location: getLocationSummary(ipGeo),
+        visitorId: body.visitorId || null,
+        createdAt: (event as { createdAt?: Date })?.createdAt,
+      }, request.log);
     }
     broadcastRealtime("summary.updated", await getAdminSummary());
     reply.code(202).send({ message: "Analytics event captured." });
@@ -1910,14 +1997,38 @@ export async function createApp() {
     );
 
     broadcastRealtime("analytics.created", event);
-    const suspiciousReason = getSuspiciousRequestReason(path, body.type || "visitor_log");
+    const eventType = body.type || "visitor_log";
+    const suspiciousReason = getSuspiciousRequestReason(path, eventType);
     if (suspiciousReason) {
       await query(
         `INSERT INTO soc_events (title, severity, source, ip, detail)
          VALUES ($1, $2, $3, $4, $5)`,
-        [suspiciousReason, path.toLowerCase().includes("/admin") ? "high" : "medium", "visitor-monitor", ip, `${body.type || "visitor_log"} at ${path}`]
+        [suspiciousReason, path.toLowerCase().includes("/admin") ? "high" : "medium", "visitor-monitor", ip, `${eventType} at ${path}`]
       );
       await logAdminSecurityEvent(request, "visitor_threat_detected", suspiciousReason, path, metadata);
+      sendSecurityAlertSafe({
+        title: suspiciousReason,
+        severity: alertSeverityForEvent(eventType, path),
+        detail: `${eventType} at ${path}`,
+        ip,
+        path,
+        eventType,
+        location: getLocationSummary(ipGeo),
+        visitorId: body.visitorId || null,
+        createdAt: (event as { createdAt?: Date })?.createdAt,
+      }, request.log);
+    } else if (shouldEmailVisitorEvent(eventType, path)) {
+      sendSecurityAlertSafe({
+        title: path.toLowerCase().includes("/admin") ? "Admin page visit recorded" : "Portfolio visitor recorded",
+        severity: alertSeverityForEvent(eventType, path),
+        detail: `${eventType} at ${path}`,
+        ip,
+        path,
+        eventType,
+        location: getLocationSummary(ipGeo),
+        visitorId: body.visitorId || null,
+        createdAt: (event as { createdAt?: Date })?.createdAt,
+      }, request.log);
     }
     broadcastRealtime("summary.updated", await getAdminSummary());
     reply.code(202).send({ message: "Visitor log captured." });
@@ -2067,6 +2178,56 @@ export async function createApp() {
       [params.visitorKey, encryptSensitive(body.customName || null), encryptSensitive(body.hostname || null), body.flag || "monitor", encryptSensitive(body.notes || null)]
     );
     return { note: note ? { ...note, customName: decryptSensitive((note as { customName?: string }).customName), hostname: decryptSensitive((note as { hostname?: string }).hostname), notes: decryptSensitive((note as { notes?: string }).notes) } : note };
+  });
+
+  app.post("/api/admin/visitors/bulk-delete", { preHandler: requireAdmin }, async (request, reply) => {
+    const body = visitorBulkDeleteSchema.parse(request.body);
+    await ensureContactColumns();
+    if (!(await verifyAdministrativePin(request, reply, body.administrativePin, "visitor_bulk_delete"))) return;
+
+    if (body.mode === "permanent") {
+      const deletedEvents = await queryOne<{ count: string }>(
+        `WITH deleted AS (
+           DELETE FROM analytics_events
+           WHERE ip = ANY($1::text[])
+              OR visitor_id = ANY($1::text[])
+              OR COALESCE(ip, visitor_id) = ANY($1::text[])
+           RETURNING id
+         )
+         SELECT COUNT(*)::text AS count FROM deleted`,
+        [body.visitorKeys]
+      );
+      await query("DELETE FROM visitor_notes WHERE visitor_key = ANY($1::text[])", [body.visitorKeys]);
+      await logAdminSecurityEvent(request, "visitors_bulk_deleted", "Admin permanently deleted multiple visitor profiles.", request.url, { visitorKeys: body.visitorKeys, deletedEvents: Number(deletedEvents?.count || 0) });
+      getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after bulk permanent visitor delete"));
+      reply.send({ message: "Visitors permanently deleted.", deletedEvents: Number(deletedEvents?.count || 0) });
+      return;
+    }
+
+    const trashedEvents = await queryOne<{ count: string }>(
+      `WITH updated AS (
+         UPDATE analytics_events
+         SET deleted_at = now(), deleted_by = 'admin'
+         WHERE deleted_at IS NULL
+           AND (
+             ip = ANY($1::text[])
+             OR visitor_id = ANY($1::text[])
+             OR COALESCE(ip, visitor_id) = ANY($1::text[])
+           )
+         RETURNING id
+       )
+       SELECT COUNT(*)::text AS count FROM updated`,
+      [body.visitorKeys]
+    );
+
+    if (Number(trashedEvents?.count || 0) === 0) {
+      reply.code(404).send({ message: "No matching active visitor records found." });
+      return;
+    }
+
+    await logAdminSecurityEvent(request, "visitors_bulk_trashed", "Admin moved multiple visitor profiles to trash.", request.url, { visitorKeys: body.visitorKeys, trashedEvents: Number(trashedEvents?.count || 0) });
+    getAdminSummary().then((summary) => broadcastRealtime("summary.updated", summary)).catch((err) => request.log.warn({ err }, "Summary refresh failed after bulk visitor trash"));
+    reply.send({ message: "Visitors moved to trash.", trashedEvents: Number(trashedEvents?.count || 0) });
   });
 
   app.delete("/api/admin/visitors/:visitorKey", { preHandler: requireAdmin }, async (request, reply) => {
