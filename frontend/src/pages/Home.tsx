@@ -9,7 +9,7 @@ import AvatarOrb from "../components/common/AvatarOrb";
 import { useToast } from "../components/common/Toast";
 import ProjectShowcase from "../components/common/ProjectShowcase";
 import { apiRequest } from "../services/api";
-import { buildVisitorPayload, getVisitorId } from "../services/visitorTracking";
+import { buildFreshVisitorPayload, getVisitorId } from "../services/visitorTracking";
 import { defaultPortfolioContent, type PortfolioContent } from "../data/portfolioContent";
 
 import {
@@ -483,7 +483,7 @@ export default function Home() {
                     message,
                     source: "home-contact",
                     visitorId: getVisitorId(),
-                    metadata: buildVisitorPayload("contact_submit", { subject }),
+                    metadata: await buildFreshVisitorPayload("contact_submit", { subject }, true),
                   }),
                 });
                 updateToast(id, "Message Sent", "Your request has been saved. You'll get a reply within 48h.", "success");

@@ -1899,7 +1899,7 @@ export async function createApp() {
     const clientIpGeo = normalizeClientIpGeo(body.metadata?.clientIpGeo, clientIp);
     const ipGeo = clientIpGeo || await getIpGeoLocation(ip);
     const ipReputation = await getIpReputation(ip);
-    const metadata = {
+    const metadata: Record<string, unknown> = {
       ...(body.metadata || {}),
       clientPublicIp: clientIp,
       clientIpGeo,
@@ -1936,7 +1936,22 @@ export async function createApp() {
       }).catch((err) => request.log.warn({ err }, "Contact email notification failed"));
     }
 
+    const contactEvent = await queryOne(
+      `INSERT INTO analytics_events (type, path, visitor_id, metadata, ip, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, type, path, visitor_id AS "visitorId", ip, user_agent AS "userAgent", metadata, created_at AS "createdAt"`,
+      [
+        "contact_submit",
+        sanitizeText(String(metadata.path || "/contact")).slice(0, 300),
+        body.visitorId || null,
+        JSON.stringify({ ...metadata, contactId: contact?.id || null, contactSubject: body.subject || "Portfolio contact" }),
+        ip,
+        request.headers["user-agent"] || null,
+      ]
+    );
+
     broadcastRealtime("contact.created", contact);
+    broadcastRealtime("analytics.created", contactEvent);
     broadcastRealtime("summary.updated", await getAdminSummary());
     reply.code(201).send({ message: "Contact message received.", contactId: contact?.id });
   });

@@ -175,6 +175,7 @@ interface VisitorProfile {
 
 type AdminSection = "dashboard" | "cms" | "visitors" | "contacts" | "soc" | "reports" | "profile";
 type LocationSource = "gps" | "ip" | "manual";
+type MapFocus = "overview" | "target" | "admin" | "distance";
 
 interface MapTarget {
   source: LocationSource;
@@ -190,11 +191,16 @@ interface AdminGeoLocation {
   accuracy: number | null;
 }
 
+interface MapPoint {
+  x: number;
+  y: number;
+}
+
 interface PinPromptRequest {
   title: string;
   message: string;
   confirmLabel: string;
-  onConfirm: (pin: string) => void;
+  onConfirm: (pin?: string) => void;
 }
 
 interface AppLockSettings {
@@ -203,6 +209,7 @@ interface AppLockSettings {
 }
 
 const APP_LOCK_SETTINGS_KEY = "cipherwolf_app_lock_settings";
+const ADMIN_PIN_ENABLED_KEY = "cipherwolf_admin_pin_enabled";
 
 const emptySummary: AdminSummary = {
   totals: {
@@ -1008,7 +1015,7 @@ function CmsView() {
     }
   };
 
-  const publishContent = async (administrativePin: string) => {
+  const publishContent = async (administrativePin?: string) => {
     const toastId = showToast("Saving CMS", "Publishing portfolio changes...", "loading");
     try {
       const data = await apiRequest<{ updatedAt: string }>("/admin/cms", {
@@ -1361,8 +1368,38 @@ function useAdministrativePinPrompt() {
   const { showToast } = useToast();
   const [request, setRequest] = useState<PinPromptRequest | null>(null);
   const [pin, setPin] = useState("");
+  const [pinProtectionEnabled, setPinProtectionEnabled] = useState<boolean | null>(() => {
+    try {
+      const stored = sessionStorage.getItem(ADMIN_PIN_ENABLED_KEY);
+      return stored === null ? null : stored === "true";
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<{ profile: AdminProfile }>("/admin/profile", { auth: true })
+      .then((data) => {
+        if (cancelled) return;
+        setPinProtectionEnabled(data.profile.administrativePinEnabled);
+        try {
+          sessionStorage.setItem(ADMIN_PIN_ENABLED_KEY, String(data.profile.administrativePinEnabled));
+        } catch {
+          // Session storage may be blocked. The modal can still fall back safely.
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const requestAdministrativePin = (nextRequest: PinPromptRequest) => {
+    if (pinProtectionEnabled === false) {
+      nextRequest.onConfirm(undefined);
+      return;
+    }
     setPin("");
     setRequest(nextRequest);
   };
@@ -2632,7 +2669,7 @@ function BackupManager({ content, setContent, setUpdatedAt }: { content: Portfol
     }
   };
 
-  const restoreBackup = async (id: string, administrativePin: string) => {
+  const restoreBackup = async (id: string, administrativePin?: string) => {
     const toastId = showToast("Restoring Backup", "Replacing CMS content with this snapshot...", "loading");
     try {
       const data = await apiRequest<{ content: PortfolioContent; updatedAt: string }>("/admin/cms/backups/" + encodeURIComponent(id) + "/restore", {
@@ -3208,7 +3245,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
   const [manualLon, setManualLon] = useState("");
   const [activeTarget, setActiveTarget] = useState<MapTarget | null>(null);
   const [adminLocation, setAdminLocation] = useState<AdminGeoLocation | null>(null);
-  const [mapFocus, setMapFocus] = useState<"target" | "admin" | "distance">("target");
+  const [mapFocus, setMapFocus] = useState<MapFocus>("overview");
   const [draft, setDraft] = useState({ customName: "", hostname: "", flag: "monitor", notes: "" });
   const [visitorLogView, setVisitorLogView] = useState<"public" | "admin">("public");
   const [selectedVisitorKeys, setSelectedVisitorKeys] = useState<string[]>([]);
@@ -3289,7 +3326,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     setSelectedVisitorKeys((current) => current.filter((key) => filteredVisitors.some((visitor) => visitor.visitorKey === key)));
   }, [filteredVisitors]);
 
-  const saveVisitorNotes = async (administrativePin: string) => {
+  const saveVisitorNotes = async (administrativePin?: string) => {
     if (!selectedVisitor) return;
     const toastId = showToast("Saving Visitor", "Updating visitor notes and flag...", "loading");
     try {
@@ -3305,7 +3342,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     }
   };
 
-  const pinVisitor = async (visitor: VisitorProfile, administrativePin: string) => {
+  const pinVisitor = async (visitor: VisitorProfile, administrativePin?: string) => {
     const toastId = showToast("Pinning Visitor", "Marking this visitor as important...", "loading");
     try {
       await apiRequest(`/admin/visitors/${encodeURIComponent(visitor.visitorKey)}/notes`, {
@@ -3337,7 +3374,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     }
   };
 
-  const deleteVisitor = async (visitor: VisitorProfile, mode: "trash" | "permanent", administrativePin: string) => {
+  const deleteVisitor = async (visitor: VisitorProfile, mode: "trash" | "permanent", administrativePin?: string) => {
     const label = visitor.customName || visitor.hostname || visitor.ip || visitor.visitorKey;
     const message = mode === "permanent" ? `Permanently delete all database events for ${label}.` : `Move ${label} to visitor trash.`;
 
@@ -3371,7 +3408,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     setSelectedVisitorKeys((current) => current.length === filteredVisitors.length ? [] : filteredVisitors.map((visitor) => visitor.visitorKey));
   };
 
-  const deleteSelectedVisitors = async (mode: "trash" | "permanent", administrativePin: string) => {
+  const deleteSelectedVisitors = async (mode: "trash" | "permanent", administrativePin?: string) => {
     if (!selectedVisitorKeys.length) return;
     const toastId = showToast(mode === "permanent" ? "Deleting Selected" : "Moving Selected", "Updating selected visitor records...", "loading");
     try {
@@ -3388,7 +3425,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
     }
   };
 
-  const deleteVisitorEvent = async (eventId: string, administrativePin: string) => {
+  const deleteVisitorEvent = async (eventId: string, administrativePin?: string) => {
     showToast("Confirm Delete", "Move this single visit or action to trash.", "loading", {
       label: "Confirm",
       onClick: () => {
@@ -3540,6 +3577,7 @@ function VisitorsView({ summary, refreshKey }: { summary: AdminSummary; refreshK
         </div>
         {selectedVisitor && activeTarget && (
           <div className="mt-4 flex flex-wrap gap-2">
+            <button onClick={() => setMapFocus("overview")} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-sm font-black text-(--text)">All visitor dots</button>
             <button onClick={() => { setLocationPickerStep("visitors"); setLocationPickerOpen(true); }} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-sm font-black text-(--text)">Choose visitor GPS/IP</button>
             <button onClick={() => { requestAdminLocation(); setMapFocus("admin"); }} className="rounded-2xl border border-(--border) bg-white px-4 py-2 text-sm font-black text-(--text)">My location</button>
             <button onClick={calculateSelectedDistance} className="rounded-2xl bg-[#101828] px-4 py-2 text-sm font-black text-white">Distance</button>
@@ -3939,7 +3977,7 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
     return contacts.filter((contact) => [contact.name, contact.email, contact.subject, contact.message, contact.ip, contact.visitorId].join(" ").toLowerCase().includes(normalized));
   }, [contacts, query]);
 
-  const updateContact = async (contact: ContactMessage, body: { status?: "new" | "read" | "archived"; pinned?: boolean }, administrativePin: string) => {
+  const updateContact = async (contact: ContactMessage, body: { status?: "new" | "read" | "archived"; pinned?: boolean }, administrativePin?: string) => {
     const toastId = showToast("Updating Contact", "Saving message status...", "loading");
     try {
       await apiRequest(`/admin/contacts/${contact.id}`, {
@@ -3954,7 +3992,7 @@ function ContactsView({ refreshKey }: { refreshKey: number }) {
     }
   };
 
-  const deleteContact = async (contact: ContactMessage, administrativePin: string) => {
+  const deleteContact = async (contact: ContactMessage, administrativePin?: string) => {
     const toastId = showToast("Deleting Contact", "Removing the message...", "loading");
     try {
       await apiRequest(`/admin/contacts/${contact.id}`, { method: "DELETE", auth: true, body: JSON.stringify({ administrativePin }) });
@@ -4070,13 +4108,13 @@ function VisitorDetail({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 px-3 pb-3 backdrop-blur-xl sm:items-center sm:p-6" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-4xl border border-white/70 bg-white/95 p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] backdrop-blur-2xl sm:p-6" onClick={(event) => event.stopPropagation()}>
+      <div className="max-h-[92vh] w-full max-w-5xl overflow-x-hidden overflow-y-auto rounded-4xl border border-white/70 bg-white/95 p-5 shadow-[0_40px_120px_rgba(15,23,42,0.25)] backdrop-blur-2xl sm:p-6" onClick={(event) => event.stopPropagation()}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <span className="mt-1 h-5 w-5 rounded-full ring-4 ring-slate-100" style={{ backgroundColor: visitor.color }} />
-            <div>
-              <h2 className="text-2xl font-black text-(--text)">{visitor.customName || visitor.hostname || visitor.ip || "Visitor Intelligence Profile"}</h2>
-              <p className="mt-1 text-sm text-(--text-secondary)">{visitor.visitorId || visitor.visitorKey}</p>
+            <div className="min-w-0">
+              <h2 className="break-all text-2xl font-black text-(--text)">{visitor.customName || visitor.hostname || visitor.ip || "Visitor Intelligence Profile"}</h2>
+              <p className="mt-1 break-all text-sm text-(--text-secondary)">{visitor.visitorId || visitor.visitorKey}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -4332,29 +4370,57 @@ function VisitorMap({
   target: MapTarget;
   adminLocation: AdminGeoLocation | null;
   distance: number | null;
-  focus: "target" | "admin" | "distance";
-  setFocus: (focus: "target" | "admin" | "distance") => void;
+  focus: MapFocus;
+  setFocus: (focus: MapFocus) => void;
   compact?: boolean;
   onUseMyLocation: () => void;
   onVisitorFocus: (visitor: VisitorProfile) => void;
 }) {
-  void visitors;
-  void onVisitorFocus;
-  const mapUrl = focus === "distance" && adminLocation && target.latitude !== null && target.longitude !== null
-    ? getGoogleDirectionsEmbedUrl(`${adminLocation.latitude},${adminLocation.longitude}`, `${target.latitude},${target.longitude}`)
-    : getGoogleMapEmbedUrl(focus === "admin" && adminLocation ? `${adminLocation.latitude},${adminLocation.longitude}` : target.query);
   const googleMapsUrl = getGoogleMapsUrl(target.query);
+  const visitorDots = (focus === "overview" ? visitors : [visitor])
+    .map((item, index) => {
+      const point = getVisitorMapPoint(item, index);
+      return { visitor: item, point };
+    })
+    .filter((item) => item.point !== null) as Array<{ visitor: VisitorProfile; point: MapPoint }>;
+  const selectedPoint = target.latitude !== null && target.longitude !== null ? coordinateToMapPoint(target.latitude, target.longitude) : getVisitorMapPoint(visitor, 0);
+  const adminPoint = adminLocation ? coordinateToMapPoint(adminLocation.latitude, adminLocation.longitude) : null;
+  const showVisitorDots = focus === "overview" || focus === "target" || focus === "distance";
+  const showAdminPin = focus === "admin" || focus === "distance" || (focus === "overview" && Boolean(adminLocation));
 
   return (
     <div className={`relative mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#dfe8ef] ${compact ? "aspect-[24/8]" : "aspect-[16/9]"}`}>
-      <iframe
-        title={`${target.label} map`}
-        src={mapUrl}
-        className="absolute inset-0 h-full w-full border-0"
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/20" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,.22),transparent_26%),radial-gradient(circle_at_80%_25%,rgba(34,197,94,.2),transparent_24%),linear-gradient(135deg,#e8f1f6,#cbd8df)]" />
+      <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(15,23,42,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.16)_1px,transparent_1px)] [background-size:42px_42px]" />
+      {focus === "distance" && adminPoint && selectedPoint && (
+        <svg className="pointer-events-none absolute inset-0 h-full w-full">
+          <line x1={`${adminPoint.x}%`} y1={`${adminPoint.y}%`} x2={`${selectedPoint.x}%`} y2={`${selectedPoint.y}%`} stroke="rgba(15,23,42,.72)" strokeWidth="3" strokeDasharray="8 8" />
+        </svg>
+      )}
+      {showVisitorDots && visitorDots.map(({ visitor: dotVisitor, point }) => (
+        <button
+          key={dotVisitor.visitorKey}
+          onClick={() => onVisitorFocus(dotVisitor)}
+          className="group absolute z-10 -translate-x-1/2 -translate-y-1/2"
+          style={{ left: `${point.x}%`, top: `${point.y}%` }}
+          aria-label={`Open ${dotVisitor.ip || dotVisitor.visitorKey}`}
+        >
+          <span className="block h-4 w-4 rounded-full border-2 border-white shadow-lg ring-4 ring-white/40" style={{ backgroundColor: dotVisitor.color }} />
+          <span className="pointer-events-none absolute left-1/2 top-6 hidden w-64 -translate-x-1/2 rounded-2xl border border-white/80 bg-white/95 p-3 text-left text-xs text-(--text) shadow-2xl shadow-slate-900/20 group-hover:block">
+            <span className="block font-black">{dotVisitor.ip || dotVisitor.visitorId || "Unknown IP"}</span>
+            <span className="mt-1 block text-(--text-secondary)">{dotVisitor.city}, {dotVisitor.country} · {dotVisitor.browser} / {dotVisitor.os}</span>
+            <span className="mt-1 block text-(--text-secondary)">{dotVisitor.isp} · {dotVisitor.eventCount} events</span>
+          </span>
+        </button>
+      ))}
+      {showAdminPin && adminPoint && (
+        <div className="absolute z-20 -translate-x-1/2 -translate-y-full" style={{ left: `${adminPoint.x}%`, top: `${adminPoint.y}%` }}>
+          <div className="relative grid h-11 w-11 place-items-center rounded-full bg-red-600 text-white shadow-2xl shadow-red-900/30">
+            <MapPin size={22} fill="currentColor" />
+            <span className="absolute h-full w-full animate-ping rounded-full bg-red-500/30" />
+          </div>
+        </div>
+      )}
       <button
         onClick={() => {
           if (!adminLocation) {
@@ -4364,20 +4430,20 @@ function VisitorMap({
           setFocus("admin");
         }}
         className="absolute bottom-5 left-5 inline-flex items-center gap-3 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-black text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl"
-        title="Recenter to my location"
+        title="Show my admin location"
       >
         <span className="relative grid h-8 w-8 place-items-center rounded-full bg-blue-500/20">
           <span className="absolute h-full w-full animate-ping rounded-full bg-blue-400/35" />
-          <span className="relative h-3.5 w-3.5 rounded-full bg-blue-600 ring-4 ring-white" />
+          <MapPin size={16} className="relative text-red-600" />
         </span>
         My location
       </button>
       <button
-        onClick={() => setFocus("target")}
+        onClick={() => setFocus("overview")}
         className="absolute bottom-5 right-5 inline-flex items-center gap-2 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-sm font-black text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl"
       >
-        <MapPin size={17} style={{ color: visitor.color }} />
-        Recenter visitor
+        <Globe2 size={17} />
+        All visitors
       </button>
       {adminLocation && target.latitude !== null && target.longitude !== null && (
         <button
@@ -4391,15 +4457,15 @@ function VisitorMap({
       <div className="absolute right-5 top-5 max-w-[min(24rem,calc(100%-2.5rem))] rounded-3xl border border-white/80 bg-white/90 p-4 text-sm text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-wide text-(--text-secondary)">{target.source === "ip" ? "IP Location" : target.source === "manual" ? "Manual Location" : "GPS Location"}</p>
-            <p className="mt-1 font-black">{target.label}</p>
+            <p className="text-xs font-black uppercase tracking-wide text-(--text-secondary)">{focus === "overview" ? "Live visitor dots" : target.source === "ip" ? "IP Location" : target.source === "manual" ? "Manual Location" : "GPS Location"}</p>
+            <p className="mt-1 font-black">{focus === "overview" ? `${visitorDots.length} visitor locations` : target.label}</p>
           </div>
           <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="shrink-0 rounded-2xl border border-(--border) bg-white px-3 py-2 text-xs font-black text-[#101828] shadow-sm">
             Open map
           </a>
         </div>
         <p className="mt-3 text-xs font-semibold text-(--text-secondary)">
-          {target.latitude !== null && target.longitude !== null ? `${target.latitude.toFixed(5)}, ${target.longitude.toFixed(5)}` : target.query}
+          {focus === "overview" ? "Hover a dot to see metadata. Click a dot to select that visitor." : target.latitude !== null && target.longitude !== null ? `${target.latitude.toFixed(5)}, ${target.longitude.toFixed(5)}` : target.query}
         </p>
       </div>
       <div className="absolute left-5 top-5 rounded-3xl border border-white/80 bg-white/90 p-4 text-sm font-semibold text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl">
@@ -4413,22 +4479,22 @@ function VisitorMap({
 
 function IntelTile({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
   return (
-    <article className="rounded-2xl bg-(--bg-primary) p-4">
+    <article className="min-w-0 rounded-2xl bg-(--bg-primary) p-4">
       <div className="flex items-center gap-2 text-(--text-secondary)">
         {icon}
         <p className="text-xs font-bold uppercase tracking-wide">{label}</p>
       </div>
-      <p className="mt-3 truncate font-black text-(--text)">{value}</p>
-      <p className="mt-1 truncate text-xs text-(--text-secondary)">{detail}</p>
+      <p className="mt-3 break-words font-black text-(--text)">{value}</p>
+      <p className="mt-1 break-words text-xs text-(--text-secondary)">{detail}</p>
     </article>
   );
 }
 
 function MiniFact({ label, value }: { label: string; value: string }) {
   return (
-    <article className="rounded-2xl bg-(--bg-primary) p-4">
+    <article className="min-w-0 rounded-2xl bg-(--bg-primary) p-4">
       <p className="text-xs font-bold uppercase tracking-wide text-(--text-secondary)">{label}</p>
-      <p className="mt-2 text-sm font-black text-(--text)">{value}</p>
+      <p className="mt-2 break-words text-sm font-black text-(--text)">{value}</p>
     </article>
   );
 }
@@ -4509,6 +4575,20 @@ function getFallbackMapPoint(seed: string, index: number) {
   };
 }
 
+function coordinateToMapPoint(latitude: number, longitude: number): MapPoint {
+  return {
+    x: clamp(((longitude + 180) / 360) * 100, 4, 96),
+    y: clamp(((90 - latitude) / 180) * 100, 6, 94),
+  };
+}
+
+function getVisitorMapPoint(visitor: VisitorProfile, index: number): MapPoint | null {
+  const latitude = visitor.latitude ?? visitor.ipLatitude;
+  const longitude = visitor.longitude ?? visitor.ipLongitude;
+  if (latitude !== null && longitude !== null) return coordinateToMapPoint(latitude, longitude);
+  return getFallbackMapPoint(visitor.visitorKey || visitor.ip || "visitor", index);
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -4559,16 +4639,6 @@ function getManualLocationTarget(manualLat: string, manualLon: string): MapTarge
     latitude,
     longitude,
   };
-}
-
-function getGoogleMapEmbedUrl(query: string) {
-  const normalized = query.trim().toLowerCase();
-  const isPrivateOrUnknown = !normalized || normalized === "unknown visitor location" || normalized === "127.0.0.1" || normalized.startsWith("10.") || normalized.startsWith("192.168.") || normalized.startsWith("172.");
-  return `https://maps.google.com/maps?q=${encodeURIComponent(isPrivateOrUnknown ? "world map" : query)}&z=${isPrivateOrUnknown ? 2 : 13}&output=embed`;
-}
-
-function getGoogleDirectionsEmbedUrl(origin: string, destination: string) {
-  return `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
 }
 
 function getGoogleMapsUrl(query: string) {
@@ -5223,6 +5293,11 @@ function ProfileView({
         body: JSON.stringify({ enabled }),
       });
       setProfile((current) => current ? { ...current, administrativePinConfigured: data.administrativePinConfigured, administrativePinEnabled: data.administrativePinEnabled } : current);
+      try {
+        sessionStorage.setItem(ADMIN_PIN_ENABLED_KEY, String(data.administrativePinEnabled));
+      } catch {
+        // Session storage may be unavailable.
+      }
       updateToast(toastId, enabled ? "PIN Protection On" : "PIN Protection Off", enabled ? "Protected actions will ask for your PIN." : "Protected actions will not ask for your PIN.", "success");
     } catch (err) {
       updateToast(toastId, "PIN Toggle Failed", err instanceof Error ? err.message : "Could not update PIN protection.", "error");
@@ -5269,6 +5344,11 @@ function ProfileView({
         body: JSON.stringify({ ...pinForm, challengeId: pinChallenge.challengeId }),
       });
       setProfile((current) => current ? { ...current, administrativePinConfigured: true, administrativePinEnabled: true } : current);
+      try {
+        sessionStorage.setItem(ADMIN_PIN_ENABLED_KEY, "true");
+      } catch {
+        // Session storage may be unavailable.
+      }
       setPinForm({ pin: "", confirmPin: "", otp: "" });
       setPinChallenge(null);
       setPinEditing(false);

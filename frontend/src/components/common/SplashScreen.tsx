@@ -100,7 +100,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
     window.setTimeout(onComplete, reduceMotion ? 120 : 620);
   };
 
-  const handleContinue = async (sharePreciseLocation = false) => {
+  const handleContinue = async (sharePreciseLocation = true) => {
     if (isCollecting || phase !== "ready") return;
     setIsCollecting(true);
 
@@ -210,24 +210,24 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
                   transition={{ duration: 0.45, ease: "easeOut" }}
                 >
                   <button
-                    onClick={() => void handleContinue(false)}
+                    onClick={() => void handleContinue(true)}
                     disabled={isCollecting}
                     className="eleken-cta min-w-40 px-8 py-3 text-sm sm:text-base shadow-xl"
                   >
                     {isCollecting ? "Entering..." : "Continue"}
                   </button>
                   <button
-                    onClick={() => void handleContinue(true)}
+                    onClick={() => void handleContinue(false)}
                     disabled={isCollecting}
                     className="text-xs font-semibold text-(--text-secondary) underline-offset-4 transition hover:text-(--primary) hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Share precise location
+                    Continue without location
                   </button>
                   <p
                     className="max-w-xs text-[0.68rem] sm:text-xs leading-5"
                     style={{ color: "var(--text-secondary, #6b7280)" }}
                   >
-                    Continue opens the portfolio without a location prompt. Precise location is optional.
+                    Continue asks for precise location for this visit. You can skip it.
                   </p>
                 </motion.div>
               )}

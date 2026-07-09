@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { apiRequest } from "../services/api";
-import { buildVisitorPayload, getVisitorId } from "../services/visitorTracking";
+import { buildFreshVisitorPayload, getVisitorId } from "../services/visitorTracking";
 
 export default function Contact() {
   const [name, setName] = useState("");
@@ -25,7 +25,7 @@ export default function Contact() {
           message,
           source: "contact-page",
           visitorId: getVisitorId(),
-          metadata: buildVisitorPayload("contact_submit", { subject }),
+          metadata: await buildFreshVisitorPayload("contact_submit", { subject }, true),
         }),
       });
       setName("");

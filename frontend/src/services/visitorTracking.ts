@@ -3,8 +3,10 @@ import { getApiUrl } from "./api";
 const VISITOR_ID_KEY = "cipherwolf_visitor_id";
 const SESSION_ID_KEY = "cipherwolf_session_id";
 const SESSION_STARTED_KEY = "cipherwolf_session_started_at";
+const SESSION_EXPIRES_KEY = "cipherwolf_session_expires_at";
 const ANALYTICS_OPT_OUT_KEY = "cipherwolf_analytics_opt_out";
 const CLIENT_NETWORK_KEY = "cipherwolf_client_network";
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 export interface VisitorLocation {
   latitude: number;
@@ -71,10 +73,13 @@ export function getVisitorId() {
 
 export function getSessionId() {
   let sessionId = readStorage(sessionStorage, SESSION_ID_KEY);
-  if (!sessionId) {
+  const expiresAt = Date.parse(readStorage(sessionStorage, SESSION_EXPIRES_KEY) || "");
+  if (!sessionId || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
     sessionId = createId("session");
+    const now = Date.now();
     writeStorage(sessionStorage, SESSION_ID_KEY, sessionId);
-    writeStorage(sessionStorage, SESSION_STARTED_KEY, new Date().toISOString());
+    writeStorage(sessionStorage, SESSION_STARTED_KEY, new Date(now).toISOString());
+    writeStorage(sessionStorage, SESSION_EXPIRES_KEY, new Date(now + SESSION_TTL_MS).toISOString());
   }
   return sessionId;
 }
@@ -234,26 +239,39 @@ export function trackVisitorEvent(type: string, extra: Record<string, unknown> =
 }
 
 export function requestVisitorLocation() {
-  if (locationRequested || !("geolocation" in navigator)) return;
+  if (locationRequested || !("geolocation" in navigator)) return Promise.resolve<VisitorLocation | null>(null);
   locationRequested = true;
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      currentLocation = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-        altitude: position.coords.altitude,
-        altitudeAccuracy: position.coords.altitudeAccuracy,
-        heading: position.coords.heading,
-        speed: position.coords.speed,
-      };
-      currentLocationError = undefined;
-      trackVisitorEvent("location_granted", { permission: "granted" }, currentLocation);
-    },
-    (error) => {
-      currentLocationError = error.message || "Location permission unavailable";
-      trackVisitorEvent("location_unavailable", { permission: "denied_or_unavailable", code: error.code }, null, currentLocationError);
-    },
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 5 * 60 * 1000 }
-  );
+  return new Promise<VisitorLocation | null>((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        currentLocation = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          altitude: position.coords.altitude,
+          altitudeAccuracy: position.coords.altitudeAccuracy,
+          heading: position.coords.heading,
+          speed: position.coords.speed,
+        };
+        currentLocationError = undefined;
+        trackVisitorEvent("location_granted", { permission: "granted" }, currentLocation);
+        resolve(currentLocation);
+      },
+      (error) => {
+        currentLocationError = error.message || "Location permission unavailable";
+        trackVisitorEvent("location_unavailable", { permission: "denied_or_unavailable", code: error.code }, null, currentLocationError);
+        resolve(null);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
+
+export async function buildFreshVisitorPayload(type: string, extra: Record<string, unknown> = {}, requestLocation = false) {
+  await Promise.race([
+    resolveClientNetwork(),
+    new Promise((resolve) => setTimeout(resolve, 1200)),
+  ]);
+  const location = requestLocation ? await requestVisitorLocation() : null;
+  return buildVisitorPayload(type, extra, location);
 }
