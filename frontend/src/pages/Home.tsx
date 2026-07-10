@@ -79,12 +79,32 @@ function mergePortfolioContent(content: PortfolioContent | null): PortfolioConte
     projects: { ...defaultPortfolioContent.projects, ...content.projects },
     services: { ...defaultPortfolioContent.services, ...content.services },
     contact: { ...defaultPortfolioContent.contact, ...content.contact },
-    resume: { ...defaultPortfolioContent.resume, ...content.resume },
+    resume: normalizeResumeSettings({ ...defaultPortfolioContent.resume, ...content.resume }),
     media: { ...defaultPortfolioContent.media, ...content.media, library: content.media?.library || defaultPortfolioContent.media.library },
     seo: { ...defaultPortfolioContent.seo, ...content.seo },
     settings: { ...defaultPortfolioContent.settings, ...content.settings },
     social: { ...defaultPortfolioContent.social, ...content.social },
     trash: { ...defaultPortfolioContent.trash, ...content.trash },
+  };
+}
+
+function isEmbeddedDataUrl(value: string | undefined) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function normalizePublicFileName(value: string) {
+  const normalized = value.trim().replace(/^:+/, "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return normalized || defaultPortfolioContent.resume.downloadName;
+}
+
+function normalizeResumeSettings(resume: PortfolioContent["resume"]): PortfolioContent["resume"] {
+  if (isEmbeddedDataUrl(resume.url) || isEmbeddedDataUrl(resume.viewUrl)) {
+    return defaultPortfolioContent.resume;
+  }
+  return {
+    downloadName: normalizePublicFileName(resume.downloadName || defaultPortfolioContent.resume.downloadName),
+    url: resume.url || defaultPortfolioContent.resume.url,
+    viewUrl: resume.viewUrl || defaultPortfolioContent.resume.viewUrl,
   };
 }
 

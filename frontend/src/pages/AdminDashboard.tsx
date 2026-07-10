@@ -791,12 +791,32 @@ function mergeCmsContent(content: PortfolioContent | null): PortfolioContent {
     projects: { ...defaultPortfolioContent.projects, ...content.projects },
     services: { ...defaultPortfolioContent.services, ...content.services },
     contact: { ...defaultPortfolioContent.contact, ...content.contact },
-    resume: { ...defaultPortfolioContent.resume, ...content.resume },
+    resume: normalizeResumeSettings({ ...defaultPortfolioContent.resume, ...content.resume }),
     media: { ...defaultPortfolioContent.media, ...content.media, library: content.media?.library || defaultPortfolioContent.media.library },
     seo: { ...defaultPortfolioContent.seo, ...content.seo },
     settings: { ...defaultPortfolioContent.settings, ...content.settings },
     social: { ...defaultPortfolioContent.social, ...content.social },
     trash: { ...defaultPortfolioContent.trash, ...content.trash },
+  };
+}
+
+function isEmbeddedDataUrl(value: string | undefined) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function normalizePublicFileName(value: string) {
+  const normalized = value.trim().replace(/^:+/, "").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return normalized || defaultPortfolioContent.resume.downloadName;
+}
+
+function normalizeResumeSettings(resume: PortfolioContent["resume"]): PortfolioContent["resume"] {
+  if (isEmbeddedDataUrl(resume.url) || isEmbeddedDataUrl(resume.viewUrl)) {
+    return structuredClone(defaultPortfolioContent.resume);
+  }
+  return {
+    downloadName: normalizePublicFileName(resume.downloadName || defaultPortfolioContent.resume.downloadName),
+    url: resume.url || defaultPortfolioContent.resume.url,
+    viewUrl: resume.viewUrl || defaultPortfolioContent.resume.viewUrl,
   };
 }
 
@@ -1220,9 +1240,9 @@ function CmsManagerPreview({ manager, content, onEdit }: { manager: CmsManager; 
       </div>
       <div className="grid gap-3 rounded-3xl border border-(--border) bg-(--bg-primary) p-4 sm:grid-cols-2">
         {details.map((detail) => (
-          <div key={detail.label} className="rounded-2xl bg-white p-4">
+          <div key={detail.label} className="min-w-0 rounded-2xl bg-white p-4">
             <p className="text-xs font-black uppercase tracking-[0.14em] text-(--text-secondary)">{detail.label}</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm font-semibold text-(--text)">{detail.value || "Not set"}</p>
+            <p className="mt-1 break-words text-sm font-semibold text-(--text)">{detail.value || "Not set"}</p>
           </div>
         ))}
       </div>
@@ -2377,6 +2397,7 @@ function MediaManager({ content, updateContent }: { content: PortfolioContent; u
 
 function ResumeManager({ content, updateContent }: { content: PortfolioContent; updateContent: (updater: (draft: PortfolioContent) => void) => void }) {
   const { showToast } = useToast();
+  const resume = normalizeResumeSettings(content.resume);
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -2384,25 +2405,30 @@ function ResumeManager({ content, updateContent }: { content: PortfolioContent; 
           label="Upload Resume PDF"
           accept="application/pdf"
           onUpload={(dataUrl, file) => {
+            void dataUrl;
+            const fileName = normalizePublicFileName(file.name || defaultPortfolioContent.resume.downloadName);
             updateContent((draft) => {
-              draft.resume.url = dataUrl;
-              draft.resume.viewUrl = dataUrl;
-              draft.resume.downloadName = file.name || draft.resume.downloadName;
+              draft.resume.url = `/${fileName}`;
+              draft.resume.viewUrl = fileName === "resume.pdf" ? "/resume.pdf" : `/${fileName}`;
+              draft.resume.downloadName = fileName;
             });
-            showToast("Resume Uploaded", `${file.name || "Resume"} was added in CMS draft.`, "success");
+            showToast("Resume Path Added", `Add ${fileName} to frontend/public before deploy. CMS now uses /${fileName}.`, "success");
           }}
         />
-        <RestoreDefaultButton label="Restore Default Resume" onRestore={() => { updateContent((draft) => { draft.resume = structuredClone(defaultPortfolioContent.resume); }); showToast("Resume Restored", "Default resume settings were restored in CMS draft.", "success"); }} />
-        <a href={content.resume.viewUrl || content.resume.url} target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
+        <RestoreDefaultButton label="Restore Default Resume" onRestore={() => { updateContent((draft) => { draft.resume = structuredClone(defaultPortfolioContent.resume); }); showToast("Resume Restored", "Default resume paths are /Sai_Dinesh_Andekar_Resume.pdf and /resume.pdf.", "success"); }} />
+        <a href={resume.viewUrl || resume.url} target="_blank" rel="noopener noreferrer" style={{ color: "#fff" }} className="inline-flex items-center gap-2 rounded-2xl bg-[#101828] px-4 py-3 text-sm font-black text-white">
           <Eye size={17} />
           Preview Resume
         </a>
       </div>
+      <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-900">
+        Use public file paths here. Add the PDF files in <span className="font-black">frontend/public</span>, then use <span className="font-black">/Sai_Dinesh_Andekar_Resume.pdf</span> for download and <span className="font-black">/resume.pdf</span> for preview.
+      </div>
       <SimpleTextManager
         title="Resume Button"
-        fields={[["Download name", content.resume.downloadName], ["Download URL", content.resume.url], ["View URL", content.resume.viewUrl]]}
+        fields={[["Download name", resume.downloadName], ["Download URL", resume.url], ["View URL", resume.viewUrl]]}
         onChange={(index, value) => updateContent((draft) => {
-          if (index === 0) draft.resume.downloadName = value;
+          if (index === 0) draft.resume.downloadName = normalizePublicFileName(value);
           else if (index === 1) draft.resume.url = value;
           else draft.resume.viewUrl = value;
         })}
@@ -4377,6 +4403,11 @@ function VisitorMap({
   onVisitorFocus: (visitor: VisitorProfile) => void;
 }) {
   const googleMapsUrl = getGoogleMapsUrl(target.query);
+  const mapQuery = focus === "admin" && adminLocation ? `${adminLocation.latitude},${adminLocation.longitude}` : target.query;
+  const mapUrl =
+    focus === "distance" && adminLocation && target.latitude !== null && target.longitude !== null
+      ? getGoogleDirectionsEmbedUrl(`${adminLocation.latitude},${adminLocation.longitude}`, `${target.latitude},${target.longitude}`)
+      : getGoogleMapEmbedUrl(mapQuery);
   const visitorDots = (focus === "overview" ? visitors : [visitor])
     .map((item, index) => {
       const point = getVisitorMapPoint(item, index);
@@ -4390,11 +4421,17 @@ function VisitorMap({
 
   return (
     <div className={`relative mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-[#dfe8ef] ${compact ? "aspect-[24/8]" : "aspect-[16/9]"}`}>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,.22),transparent_26%),radial-gradient(circle_at_80%_25%,rgba(34,197,94,.2),transparent_24%),linear-gradient(135deg,#e8f1f6,#cbd8df)]" />
-      <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(15,23,42,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.16)_1px,transparent_1px)] [background-size:42px_42px]" />
+      <iframe
+        title={focus === "distance" ? "Google directions map" : `${target.label} Google map`}
+        src={mapUrl}
+        className="absolute inset-0 h-full w-full border-0"
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+      />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-slate-950/10" />
       {focus === "distance" && adminPoint && selectedPoint && (
         <svg className="pointer-events-none absolute inset-0 h-full w-full">
-          <line x1={`${adminPoint.x}%`} y1={`${adminPoint.y}%`} x2={`${selectedPoint.x}%`} y2={`${selectedPoint.y}%`} stroke="rgba(15,23,42,.72)" strokeWidth="3" strokeDasharray="8 8" />
+          <line x1={`${adminPoint.x}%`} y1={`${adminPoint.y}%`} x2={`${selectedPoint.x}%`} y2={`${selectedPoint.y}%`} stroke="rgba(15,23,42,.45)" strokeWidth="3" strokeDasharray="8 8" />
         </svg>
       )}
       {showVisitorDots && visitorDots.map(({ visitor: dotVisitor, point }) => (
@@ -4470,7 +4507,7 @@ function VisitorMap({
       </div>
       <div className="absolute left-5 top-5 rounded-3xl border border-white/80 bg-white/90 p-4 text-sm font-semibold text-(--text) shadow-xl shadow-slate-900/10 backdrop-blur-xl">
         <p className="text-xs font-black uppercase tracking-wide text-(--text-secondary)">Distance</p>
-        <p className="mt-1 text-lg font-black">{distance ? `${formatDistanceKm(distance)} straight-line` : adminLocation ? "Coordinates needed for distance" : "Click Distance to calculate"}</p>
+        <p className="mt-1 text-lg font-black">{distance ? `${formatDistanceKm(distance)} approx / Google route view` : adminLocation ? "Coordinates needed for distance" : "Click Distance to calculate"}</p>
         {adminLocation && <p className="mt-1 text-xs text-(--text-secondary)">Your GPS accuracy: {adminLocation.accuracy ? `${Math.round(adminLocation.accuracy)}m` : "unknown"}</p>}
       </div>
     </div>
@@ -4639,6 +4676,16 @@ function getManualLocationTarget(manualLat: string, manualLon: string): MapTarge
     latitude,
     longitude,
   };
+}
+
+function getGoogleMapEmbedUrl(query: string) {
+  const normalized = query.trim().toLowerCase();
+  const isPrivateOrUnknown = !normalized || normalized === "unknown visitor location" || normalized === "127.0.0.1" || normalized.startsWith("10.") || normalized.startsWith("192.168.") || normalized.startsWith("172.");
+  return `https://maps.google.com/maps?q=${encodeURIComponent(isPrivateOrUnknown ? "world map" : query)}&z=${isPrivateOrUnknown ? 2 : 13}&output=embed`;
+}
+
+function getGoogleDirectionsEmbedUrl(origin: string, destination: string) {
+  return `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
 }
 
 function getGoogleMapsUrl(query: string) {
